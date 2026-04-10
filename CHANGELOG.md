@@ -32,6 +32,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - API key zeroing improved: unsafe used to zero original backing
   memory, not just the copied slice
 
+## [0.2.1] - 2026-04-10
+### Added
+- Conditional routing: route tasks to different stages based on field
+  values in agent output, supporting ==, !=, >, >=, <, <=, and contains
+  operators
+- Pipeline dashboard: single-page web UI served by Orcastrator showing
+  live pipeline topology, per-stage queue depths, task event feed, and
+  agent health status
+- Retry budgets: pipeline-level and agent-level caps on total retry
+  attempts within a sliding time window
+- Dead letter queue management: inspect, replay, and discard
+  dead-lettered tasks via CLI and API
+- Plugin system: load custom LLM provider adapters as Go shared
+  libraries without forking Orcastrator
+- Cycle detection in pipeline config validation — circular routing
+  references are now rejected at startup
+- Runtime max_stage_transitions safeguard (default: 50) as
+  defence-in-depth against routing loops
+
+### Security
+- SEC4-001: Security headers middleware — X-Content-Type-Options,
+  X-Frame-Options, and Referrer-Policy now set on all responses
+- SEC4-002: Content Security Policy on dashboard — restricts scripts
+  to self and cdnjs.cloudflare.com only
+- Full SEC4 audit completed — 8 additional findings tracked in
+  KNOWN_GAPS.md
+
 ## [0.1.0] - 2026-04-09
 
 ### Added
