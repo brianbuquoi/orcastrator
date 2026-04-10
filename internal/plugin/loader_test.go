@@ -9,8 +9,8 @@ import (
 	goplugin "plugin"
 	"testing"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
-	pluginapi "github.com/orcastrator/orcastrator/pkg/plugin"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
+	pluginapi "github.com/brianbuquoi/orcastrator/pkg/plugin"
 )
 
 // --- mock helpers ---

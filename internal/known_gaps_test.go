@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/auth"
-	"github.com/orcastrator/orcastrator/internal/sanitize"
+	"github.com/brianbuquoi/orcastrator/internal/auth"
+	"github.com/brianbuquoi/orcastrator/internal/sanitize"
 )
 
 // =============================================================================

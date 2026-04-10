@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/orcastrator/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/config"
 )
 
 func testdataDir(t *testing.T) string {

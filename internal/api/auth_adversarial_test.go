@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/auth"
-	"github.com/orcastrator/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/auth"
+	"github.com/brianbuquoi/orcastrator/internal/config"
 )
 
 // --- Test 3: Key in logs (middleware-level) ---

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/config"
 )
 
 // Budget holds the configuration for a single retry budget.

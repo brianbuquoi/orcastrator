@@ -3,7 +3,7 @@ package metrics_test
 import (
 	"testing"
 
-	"github.com/orcastrator/orcastrator/internal/metrics"
+	"github.com/brianbuquoi/orcastrator/internal/metrics"
 )
 
 func TestNew_ReturnsIndependentRegistries(t *testing.T) {

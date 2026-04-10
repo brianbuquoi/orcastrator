@@ -13,14 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/agent"
-	"github.com/orcastrator/orcastrator/internal/api"
-	"github.com/orcastrator/orcastrator/internal/broker"
-	"github.com/orcastrator/orcastrator/internal/config"
-	"github.com/orcastrator/orcastrator/internal/contract"
-	"github.com/orcastrator/orcastrator/internal/metrics"
-	"github.com/orcastrator/orcastrator/internal/store/memory"
-	"github.com/orcastrator/orcastrator/internal/tracing"
+	"github.com/brianbuquoi/orcastrator/internal/agent"
+	"github.com/brianbuquoi/orcastrator/internal/api"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/contract"
+	"github.com/brianbuquoi/orcastrator/internal/metrics"
+	"github.com/brianbuquoi/orcastrator/internal/store/memory"
+	"github.com/brianbuquoi/orcastrator/internal/tracing"
 )
 
 // Verify mockAgent implements broker.Agent at compile time.

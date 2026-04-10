@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/auth"
-	"github.com/orcastrator/orcastrator/internal/broker"
-	"github.com/orcastrator/orcastrator/internal/config"
-	"github.com/orcastrator/orcastrator/internal/contract"
-	"github.com/orcastrator/orcastrator/internal/store/memory"
+	"github.com/brianbuquoi/orcastrator/internal/auth"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/contract"
+	"github.com/brianbuquoi/orcastrator/internal/store/memory"
 	"golang.org/x/crypto/bcrypt"
 )
 

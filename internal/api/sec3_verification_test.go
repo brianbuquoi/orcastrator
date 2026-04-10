@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/auth"
-	"github.com/orcastrator/orcastrator/internal/config"
-	"github.com/orcastrator/orcastrator/internal/metrics"
+	"github.com/brianbuquoi/orcastrator/internal/auth"
+	"github.com/brianbuquoi/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/metrics"
 
 	"golang.org/x/crypto/bcrypt"
 )

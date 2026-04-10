@@ -10,8 +10,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/orcastrator/orcastrator/internal/agent"
-	"github.com/orcastrator/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/agent"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
 )
 
 const providerName = "copilot"

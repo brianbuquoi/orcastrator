@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/orcastrator/orcastrator/internal/agent"
-	"github.com/orcastrator/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/agent"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
 )
 
 // --- Item 7: Compile-time interface check ---

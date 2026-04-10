@@ -3,7 +3,7 @@
 ## Getting started
 
 ```bash
-git clone https://github.com/orcastrator/orcastrator.git
+git clone https://github.com/brianbuquoi/orcastrator.git
 cd orcastrator
 make test-unit
 ```
@@ -64,7 +64,7 @@ Each plugin is a Go shared library (.so) that exports a single symbol.
 Import the public plugin API:
 
 ```go
-import "github.com/orcastrator/orcastrator/pkg/plugin"
+import "github.com/brianbuquoi/orcastrator/pkg/plugin"
 ```
 
 Create a type that implements `plugin.AgentPlugin`:

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/orcastrator/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/config"
 )
 
 // =============================================================================

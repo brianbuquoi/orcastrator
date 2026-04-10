@@ -10,7 +10,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/orcastrator/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/config"
 
 	"golang.org/x/crypto/bcrypt"
 )

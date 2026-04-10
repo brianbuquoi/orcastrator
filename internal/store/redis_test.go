@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
-	"github.com/orcastrator/orcastrator/internal/store"
-	redisstore "github.com/orcastrator/orcastrator/internal/store/redis"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/store"
+	redisstore "github.com/brianbuquoi/orcastrator/internal/store/redis"
 )
 
 func newRedisTestStore(t *testing.T, prefix string) (*redisstore.RedisStore, *miniredis.Miniredis, *goredis.Client) {

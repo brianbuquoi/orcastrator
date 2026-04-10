@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/auth"
-	"github.com/orcastrator/orcastrator/internal/broker"
-	"github.com/orcastrator/orcastrator/internal/dashboard"
-	"github.com/orcastrator/orcastrator/internal/metrics"
+	"github.com/brianbuquoi/orcastrator/internal/auth"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/dashboard"
+	"github.com/brianbuquoi/orcastrator/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 

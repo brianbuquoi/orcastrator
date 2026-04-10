@@ -6,11 +6,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
-	"github.com/orcastrator/orcastrator/internal/config"
-	"github.com/orcastrator/orcastrator/internal/contract"
-	"github.com/orcastrator/orcastrator/internal/migration"
-	"github.com/orcastrator/orcastrator/internal/store/memory"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/contract"
+	"github.com/brianbuquoi/orcastrator/internal/migration"
+	"github.com/brianbuquoi/orcastrator/internal/store/memory"
 )
 
 // runTestMigration simulates what the CLI does: list tasks, migrate payloads,

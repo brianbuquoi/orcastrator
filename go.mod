@@ -1,4 +1,4 @@
-module github.com/orcastrator/orcastrator
+module github.com/brianbuquoi/orcastrator
 
 go 1.25.9
 

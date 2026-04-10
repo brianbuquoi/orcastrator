@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/orcastrator/orcastrator/internal/agent"
-	"github.com/orcastrator/orcastrator/internal/agent/anthropic"
-	"github.com/orcastrator/orcastrator/internal/agent/copilot"
-	"github.com/orcastrator/orcastrator/internal/agent/google"
-	"github.com/orcastrator/orcastrator/internal/agent/ollama"
-	"github.com/orcastrator/orcastrator/internal/agent/openai"
-	"github.com/orcastrator/orcastrator/internal/config"
-	"github.com/orcastrator/orcastrator/internal/metrics"
-	internalplugin "github.com/orcastrator/orcastrator/internal/plugin"
-	pluginapi "github.com/orcastrator/orcastrator/pkg/plugin"
+	"github.com/brianbuquoi/orcastrator/internal/agent"
+	"github.com/brianbuquoi/orcastrator/internal/agent/anthropic"
+	"github.com/brianbuquoi/orcastrator/internal/agent/copilot"
+	"github.com/brianbuquoi/orcastrator/internal/agent/google"
+	"github.com/brianbuquoi/orcastrator/internal/agent/ollama"
+	"github.com/brianbuquoi/orcastrator/internal/agent/openai"
+	"github.com/brianbuquoi/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/metrics"
+	internalplugin "github.com/brianbuquoi/orcastrator/internal/plugin"
+	pluginapi "github.com/brianbuquoi/orcastrator/pkg/plugin"
 )
 
 // NewFromConfig creates the appropriate Agent adapter based on the provider

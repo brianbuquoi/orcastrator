@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/agent"
-	"github.com/orcastrator/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/agent"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
 )
 
 func newTestAdapter(t *testing.T, serverURL string) *Adapter {

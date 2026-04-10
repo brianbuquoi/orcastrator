@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/orcastrator/orcastrator/internal/auth"
+	"github.com/brianbuquoi/orcastrator/internal/auth"
 )
 
 const requestIDHeader = "X-Request-ID"

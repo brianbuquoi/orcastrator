@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
-	"github.com/orcastrator/orcastrator/internal/config"
-	"github.com/orcastrator/orcastrator/internal/contract"
-	"github.com/orcastrator/orcastrator/internal/metrics"
-	"github.com/orcastrator/orcastrator/internal/store/memory"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/contract"
+	"github.com/brianbuquoi/orcastrator/internal/metrics"
+	"github.com/brianbuquoi/orcastrator/internal/store/memory"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )

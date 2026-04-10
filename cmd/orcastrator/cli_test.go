@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
 	"github.com/spf13/cobra"
 )
 

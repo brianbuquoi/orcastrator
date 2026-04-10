@@ -9,8 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/orcastrator/orcastrator/internal/store"
-	pgstore "github.com/orcastrator/orcastrator/internal/store/postgres"
+	"github.com/brianbuquoi/orcastrator/internal/store"
+	pgstore "github.com/brianbuquoi/orcastrator/internal/store/postgres"
 )
 
 func TestPostgresStoreConformance(t *testing.T) {

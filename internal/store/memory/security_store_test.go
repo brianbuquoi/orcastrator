@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
 )
 
 func TestPayloadRoundTrip_LargeJSON(t *testing.T) {

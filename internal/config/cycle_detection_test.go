@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/orcastrator/orcastrator/internal/routing"
+	"github.com/brianbuquoi/orcastrator/internal/routing"
 )
 
 func TestDetectCycles_SelfLoop_NoExit(t *testing.T) {

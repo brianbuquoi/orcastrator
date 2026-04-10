@@ -44,7 +44,7 @@ Tasks follow the lifecycle: `PENDING -> ROUTING -> EXECUTING -> VALIDATING -> DO
 Install:
 
 ```bash
-go install github.com/orcastrator/orcastrator/cmd/orcastrator@latest
+go install github.com/brianbuquoi/orcastrator/cmd/orcastrator@latest
 ```
 
 Create `pipeline.yaml`:

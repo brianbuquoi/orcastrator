@@ -9,7 +9,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/orcastrator/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/config"
 )
 
 // --- Test 3: Key in logs ---

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
-	"github.com/orcastrator/orcastrator/internal/config"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/config"
 	"go.opentelemetry.io/otel/propagation"
 )
 

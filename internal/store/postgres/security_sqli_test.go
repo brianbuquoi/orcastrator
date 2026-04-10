@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
 )
 
 func TestSecurity_SQLInjection(t *testing.T) {

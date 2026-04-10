@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
 )
 
 func TestLogScrubbing_Ollama(t *testing.T) {

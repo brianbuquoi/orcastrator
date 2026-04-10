@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
-	"github.com/orcastrator/orcastrator/internal/store"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/store"
 )
 
 // MemoryStore is a thread-safe, in-memory implementation of store.Store.

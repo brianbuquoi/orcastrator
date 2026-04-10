@@ -17,9 +17,9 @@ import (
 
 	goplugin "plugin"
 
-	"github.com/orcastrator/orcastrator/internal/broker"
-	"github.com/orcastrator/orcastrator/internal/config"
-	pluginapi "github.com/orcastrator/orcastrator/pkg/plugin"
+	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/orcastrator/internal/config"
+	pluginapi "github.com/brianbuquoi/orcastrator/pkg/plugin"
 )
 
 // validID matches safe identifiers — same regex as config.validateID.

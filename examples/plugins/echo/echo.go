@@ -10,7 +10,7 @@ package main
 import (
 	"context"
 
-	"github.com/orcastrator/orcastrator/pkg/plugin"
+	"github.com/brianbuquoi/orcastrator/pkg/plugin"
 )
 
 // Plugin is the exported symbol that Orcastrator looks up when loading
