@@ -491,24 +491,9 @@ func (b *Broker) processTask(ctx context.Context, pipelineID string, stage *conf
 	history = append(history, stage.ID)
 	b.mergeMetadata(ctx, task, map[string]any{"stage_history": history})
 
-	// --- Schema version compatibility ---
-	compatible, err := contract.IsCompatible(
-		contract.SchemaVersion(task.InputSchemaVersion),
-		contract.SchemaVersion(stage.InputSchema.Version),
-	)
-	if err != nil || !compatible {
-		msg := "schema version mismatch"
-		if err != nil {
-			msg = err.Error()
-		}
-		b.logger.Warn("version mismatch",
-			"task_id", task.ID, "stage", stage.ID,
-			"task_version", task.InputSchemaVersion,
-			"stage_version", stage.InputSchema.Version,
-		)
-		b.failTask(ctx, pipelineID, stage, task, msg)
-		return
-	}
+	// Version compatibility is enforced at routing time in routeSuccess,
+	// before the task's schema fields are updated to the next stage.
+	// By the time a task is dequeued here, the versions already match.
 
 	// --- Input contract validation ---
 	if err := validator.ValidateInput(
@@ -686,19 +671,9 @@ func (b *Broker) processFanOutTask(ctx context.Context, pipelineID string, stage
 	history = append(history, stage.ID)
 	b.mergeMetadata(ctx, task, map[string]any{"stage_history": history})
 
-	// --- Schema version compatibility ---
-	compatible, err := contract.IsCompatible(
-		contract.SchemaVersion(task.InputSchemaVersion),
-		contract.SchemaVersion(stage.InputSchema.Version),
-	)
-	if err != nil || !compatible {
-		msg := "schema version mismatch"
-		if err != nil {
-			msg = err.Error()
-		}
-		b.failTask(ctx, pipelineID, stage, task, msg)
-		return
-	}
+	// Version compatibility is enforced at routing time in routeSuccess,
+	// before the task's schema fields are updated to the next stage.
+	// By the time a task is dequeued here, the versions already match.
 
 	// --- Input contract validation ---
 	if err := validator.ValidateInput(
@@ -1059,6 +1034,41 @@ func (b *Broker) routeSuccess(ctx context.Context, pipelineID string, stage *con
 		b.logger.Error("next stage not found", "task_id", task.ID, "next_stage", next)
 		state := TaskStateFailed
 		_ = b.store.UpdateTask(ctx, task.ID, TaskUpdate{State: &state})
+		return
+	}
+
+	// Version compatibility check — must happen BEFORE updating task schema
+	// fields. Compare what this stage just produced against what the next
+	// stage expects. After the UpdateTask below, task.OutputSchemaVersion
+	// will be overwritten and this check would always pass.
+	compatible, compatErr := contract.IsCompatible(
+		contract.SchemaVersion(task.OutputSchemaVersion),
+		contract.SchemaVersion(nextStage.InputSchema.Version),
+	)
+	if compatErr != nil || !compatible {
+		msg := fmt.Sprintf(
+			"version mismatch: stage %q outputs %s@%s but stage %q expects %s@%s",
+			task.StageID, task.OutputSchemaName, task.OutputSchemaVersion,
+			next, nextStage.InputSchema.Name, nextStage.InputSchema.Version,
+		)
+		b.logger.Warn("routing version mismatch",
+			"task_id", task.ID,
+			"from_stage", task.StageID,
+			"to_stage", next,
+			"output_version", task.OutputSchemaVersion,
+			"expected_version", nextStage.InputSchema.Version,
+		)
+		b.mergeMetadata(ctx, task, map[string]any{
+			"version_mismatch": map[string]any{
+				"from_stage":       task.StageID,
+				"to_stage":         next,
+				"output_schema":    task.OutputSchemaName,
+				"output_version":   task.OutputSchemaVersion,
+				"expected_schema":  nextStage.InputSchema.Name,
+				"expected_version": nextStage.InputSchema.Version,
+			},
+		})
+		b.failTask(ctx, pipelineID, stage, task, msg)
 		return
 	}
 

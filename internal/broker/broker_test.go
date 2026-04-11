@@ -404,6 +404,134 @@ func TestVersionMismatch(t *testing.T) {
 	}
 }
 
+// TestRoutingVersionMismatch verifies that routeSuccess catches a version
+// mismatch between the current stage's output schema and the next stage's
+// input schema *before* the task's schema fields are rewritten. Prior to
+// this check, the mismatch would never be detected: the worker-loop check
+// always compared the next stage's version against itself.
+func TestRoutingVersionMismatch(t *testing.T) {
+	dir := t.TempDir()
+	objSchema := func(prop string) map[string]any {
+		return map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				prop: map[string]any{"type": "string"},
+			},
+			"required":             []string{prop},
+			"additionalProperties": false,
+		}
+	}
+
+	// stage1 outputs shared@v1. stage2 expects shared@v2 (same name, major bump).
+	sharedV1 := writeSchema(t, dir, "shared_v1.json", objSchema("category"))
+	sharedV2 := writeSchema(t, dir, "shared_v2.json", objSchema("category"))
+	s1in := writeSchema(t, dir, "s1_in.json", objSchema("request"))
+	s2out := writeSchema(t, dir, "s2_out.json", objSchema("result"))
+
+	cfg := &config.Config{
+		Version: "1",
+		SchemaRegistry: []config.SchemaEntry{
+			{Name: "s1_in", Version: "v1", Path: s1in},
+			{Name: "shared", Version: "v1", Path: sharedV1},
+			{Name: "shared", Version: "v2", Path: sharedV2},
+			{Name: "s2_out", Version: "v1", Path: s2out},
+		},
+		Pipelines: []config.Pipeline{
+			{
+				Name:        "test-pipeline",
+				Concurrency: 1,
+				Store:       "memory",
+				Stages: []config.Stage{
+					{
+						ID:           "produce_v1",
+						Agent:        "agent1",
+						InputSchema:  config.StageSchemaRef{Name: "s1_in", Version: "v1"},
+						OutputSchema: config.StageSchemaRef{Name: "shared", Version: "v1"},
+						Timeout:      config.Duration{Duration: 5 * time.Second},
+						Retry:        config.RetryPolicy{MaxAttempts: 1, Backoff: "fixed", BaseDelay: config.Duration{Duration: 10 * time.Millisecond}},
+						OnSuccess:    config.StaticOnSuccess("consume_v2"),
+						OnFailure:    "dead-letter",
+					},
+					{
+						ID:           "consume_v2",
+						Agent:        "agent2",
+						InputSchema:  config.StageSchemaRef{Name: "shared", Version: "v2"},
+						OutputSchema: config.StageSchemaRef{Name: "s2_out", Version: "v1"},
+						Timeout:      config.Duration{Duration: 5 * time.Second},
+						Retry:        config.RetryPolicy{MaxAttempts: 1, Backoff: "fixed", BaseDelay: config.Duration{Duration: 10 * time.Millisecond}},
+						OnSuccess:    config.StaticOnSuccess("done"),
+						OnFailure:    "dead-letter",
+					},
+				},
+			},
+		},
+		Agents: []config.Agent{
+			{ID: "agent1", Provider: "mock", SystemPrompt: "p1"},
+			{ID: "agent2", Provider: "mock", SystemPrompt: "p2"},
+		},
+	}
+
+	reg, err := contract.NewRegistry(cfg.SchemaRegistry, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st := memory.New()
+	agents := map[string]broker.Agent{
+		"agent1": &mockAgent{id: "agent1", provider: "mock"},
+		"agent2": &mockAgent{id: "agent2", provider: "mock"},
+	}
+
+	// produce_v1 returns a valid shared@v1 payload.
+	agents["agent1"].(*mockAgent).setHandler(func(_ context.Context, _ *broker.Task) (*broker.TaskResult, error) {
+		return &broker.TaskResult{Payload: json.RawMessage(`{"category":"alpha"}`)}, nil
+	})
+	// consume_v2 must NEVER run — mismatch should stop routing.
+	agents["agent2"].(*mockAgent).setHandler(func(_ context.Context, _ *broker.Task) (*broker.TaskResult, error) {
+		t.Error("consume_v2 agent must not execute on routing version mismatch")
+		return nil, errors.New("unexpected")
+	})
+
+	b := newBroker(cfg, st, agents, reg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go b.Run(ctx)
+
+	task, err := b.Submit(ctx, "test-pipeline", json.RawMessage(`{"request":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	final := waitForTaskState(t, st, task.ID, broker.TaskStateFailed, 5*time.Second)
+
+	reason, _ := final.Metadata["failure_reason"].(string)
+	if !strings.Contains(reason, "version mismatch") {
+		t.Errorf("failure_reason should contain \"version mismatch\", got: %q", reason)
+	}
+	if !strings.Contains(reason, "produce_v1") || !strings.Contains(reason, "consume_v2") {
+		t.Errorf("failure_reason should name both stages, got: %q", reason)
+	}
+
+	vm, ok := final.Metadata["version_mismatch"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected version_mismatch metadata map, got: %#v", final.Metadata["version_mismatch"])
+	}
+	for _, k := range []string{"from_stage", "to_stage", "output_schema", "output_version", "expected_schema", "expected_version"} {
+		if _, has := vm[k]; !has {
+			t.Errorf("version_mismatch missing key %q", k)
+		}
+	}
+	if vm["from_stage"] != "produce_v1" || vm["to_stage"] != "consume_v2" {
+		t.Errorf("wrong stages in version_mismatch: %#v", vm)
+	}
+	if vm["output_version"] != "v1" || vm["expected_version"] != "v2" {
+		t.Errorf("wrong versions in version_mismatch: %#v", vm)
+	}
+	if !final.RoutedToDeadLetter {
+		t.Error("expected RoutedToDeadLetter=true")
+	}
+}
+
 func TestSanitizerWarning(t *testing.T) {
 	cfg, st, agents, reg := buildTestEnv(t)
 
