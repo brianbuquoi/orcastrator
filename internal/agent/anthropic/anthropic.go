@@ -207,16 +207,21 @@ func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskR
 
 	// Extract text from content blocks.
 	if len(result.Content) == 0 {
-		return nil, a.nonRetryableErr(fmt.Errorf("empty content in response"))
+		return nil, a.retryableErr(fmt.Errorf("empty content in response"))
 	}
 	var output strings.Builder
+	sawTextBlock := false
 	for _, block := range result.Content {
 		if block.Type == "text" {
+			sawTextBlock = true
 			output.WriteString(block.Text)
 		}
 	}
-	if output.Len() == 0 {
+	if !sawTextBlock {
 		return nil, a.nonRetryableErr(fmt.Errorf("no text content in response (unsupported content type)"))
+	}
+	if output.Len() == 0 {
+		return nil, a.retryableErr(fmt.Errorf("empty text content in response"))
 	}
 
 	a.logger.Info("anthropic request completed",
@@ -236,7 +241,7 @@ func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskR
 
 	payload, parseErr := agent.ParseJSONObjectOutput(output.String())
 	if parseErr != nil {
-		return nil, a.nonRetryableErr(parseErr)
+		return nil, a.retryableErr(parseErr)
 	}
 
 	return &broker.TaskResult{

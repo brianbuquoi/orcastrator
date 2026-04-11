@@ -243,7 +243,7 @@ func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskR
 		output.WriteString(p.Text)
 	}
 	if output.Len() == 0 {
-		return nil, a.nonRetryableErr(fmt.Errorf("no text content in response"))
+		return nil, a.retryableErr(fmt.Errorf("no text content in response"))
 	}
 
 	var inputTokens, outputTokens int
@@ -269,7 +269,7 @@ func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskR
 
 	payload, parseErr := agent.ParseJSONObjectOutput(output.String())
 	if parseErr != nil {
-		return nil, a.nonRetryableErr(parseErr)
+		return nil, a.retryableErr(parseErr)
 	}
 
 	return &broker.TaskResult{

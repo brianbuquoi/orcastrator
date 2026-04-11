@@ -197,7 +197,7 @@ func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskR
 
 	output := result.Message.Content
 	if output == "" {
-		return nil, a.nonRetryableErr(fmt.Errorf("empty content in response"))
+		return nil, a.retryableErr(fmt.Errorf("empty content in response"))
 	}
 
 	a.logger.Info("ollama request completed",
@@ -217,7 +217,7 @@ func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskR
 
 	payload, parseErr := agent.ParseJSONObjectOutput(output)
 	if parseErr != nil {
-		return nil, a.nonRetryableErr(parseErr)
+		return nil, a.retryableErr(parseErr)
 	}
 
 	return &broker.TaskResult{

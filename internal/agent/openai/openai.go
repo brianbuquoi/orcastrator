@@ -238,7 +238,7 @@ func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskR
 
 	payload, parseErr := agent.ParseJSONObjectOutput(output)
 	if parseErr != nil {
-		return nil, a.nonRetryableErr(parseErr)
+		return nil, a.retryableErr(parseErr)
 	}
 
 	return &broker.TaskResult{

@@ -407,8 +407,8 @@ func TestExecute_EmptyContent(t *testing.T) {
 	_, err := a.Execute(context.Background(), testTask())
 	ae := mustAgentError(t, err)
 
-	if ae.Retryable {
-		t.Error("empty content must be non-retryable")
+	if !ae.Retryable {
+		t.Error("empty content must be retryable")
 	}
 }
 
@@ -735,8 +735,8 @@ func TestExecute_JSONOutput_PlainText_Rejected(t *testing.T) {
 	a := newTestAdapter(t, srv.URL)
 	_, err := a.Execute(context.Background(), testTask())
 	ae := mustAgentError(t, err)
-	if ae.Retryable {
-		t.Error("plain-text output must be non-retryable")
+	if !ae.Retryable {
+		t.Error("plain-text output must be retryable")
 	}
 	if !strings.Contains(ae.Error(), "JSON") && !strings.Contains(ae.Error(), "json") {
 		t.Errorf("error should mention JSON, got: %s", ae.Error())
@@ -752,8 +752,8 @@ func TestExecute_JSONOutput_Empty_Rejected(t *testing.T) {
 	a := newTestAdapter(t, srv.URL)
 	_, err := a.Execute(context.Background(), testTask())
 	ae := mustAgentError(t, err)
-	if ae.Retryable {
-		t.Error("empty output must be non-retryable")
+	if !ae.Retryable {
+		t.Error("empty output must be retryable")
 	}
 }
 
@@ -766,7 +766,7 @@ func TestExecute_JSONOutput_Array_Rejected(t *testing.T) {
 	a := newTestAdapter(t, srv.URL)
 	_, err := a.Execute(context.Background(), testTask())
 	ae := mustAgentError(t, err)
-	if ae.Retryable {
-		t.Error("array output must be non-retryable (must be an object)")
+	if !ae.Retryable {
+		t.Error("array output must be retryable (must be an object)")
 	}
 }
