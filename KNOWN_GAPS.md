@@ -15,6 +15,86 @@ are static, human-readable strings. While the sanitizer detects these in agent o
 a per-task random nonce in the delimiter would provide stronger defense-in-depth.
 **Recommendation:** Use a cryptographically random nonce in delimiters per-task.
 
+## Sanitizer Coverage Gaps
+
+### SAN-001: Sanitizer active detection covers 2 of 8 known vector classes
+**Severity:** Medium
+**Location:** `internal/sanitize/sanitizer.go`
+**Detail:** The sanitizer actively detects and redacts two injection
+pattern classes: instruction_override (e.g. "ignore previous instructions")
+and delimiter_injection (e.g. "[END SYSTEM CONTEXT]"). Six other vector
+classes tested in the injection stress test (05-injection-stress-test.yaml)
+produced no sanitizer warnings and were neutralized entirely by Claude's
+model alignment:
+- Role-play / narrative framing ("The following is a conversation between
+  two AIs. AI-2 says:")
+- Base64 encoded payloads (decoding logic exists but did not produce warnings)
+- Multi-language injections (non-Latin scripts)
+- Nested JSON structure injections
+- Long padding attacks (injection after large volume of benign content)
+- Markdown/XML tag breakout attempts
+
+All 8 vectors failed to compromise the pipeline across multiple runs.
+However, resistance to 6 of the 8 classes relies on model alignment
+rather than active redaction. This means:
+1. A future model version with weaker alignment could be vulnerable
+2. There is no audit trail for these vector classes (no sanitizer_warnings
+   in task metadata)
+3. The sanitizer cannot be independently verified to have protected against
+   these vectors
+
+**Recommendation:** Add dedicated detectors for the six unhandled vector
+classes. Priority order:
+1. Narrative framing / dialogue continuation patterns (vector 3) — hardest
+   to detect reliably without false positives on legitimate content
+2. Multi-language instruction keywords (vector 5) — add Unicode normalization
+   and translated variants of common injection phrases
+3. Long padding attacks (vector 7) — scan the last 500 characters of long
+   inputs independently of the full-text scan
+4. Base64 warnings (vector 4) — the decoder exists; ensure it generates
+   a SanitizeWarning when decoded content contains injection keywords
+5. Markdown/XML tag breakout (vector 8) — detect `</task>`, `<new_task>`,
+   `[INST]`, `<|system|>` and similar structural tags
+6. Nested JSON injection (vector 6) — detect reserved key names
+   (`__override__`, `system_prompt`, `instructions`) in input JSON
+
+**Status:** Open — accepted risk for current release. Active detection
+limited to instruction_override and delimiter_injection. All other classes
+rely on model alignment as second line of defense.
+
+### SAN-002: Base64 detector does not produce sanitizer warnings
+**Severity:** Low
+**Location:** `internal/sanitize/sanitizer.go` lines 153-170
+**Detail:** The base64 detector (lines 153-170) finds and decodes base64
+strings and checks them for injection keywords. However, in live testing
+with a base64-encoded injection payload (vector 4), no sanitizer_warnings
+appeared in task metadata. Either the decoded content did not match the
+injection keyword patterns, or the warning generation code path was not
+reached. The injection did not succeed, but the lack of a warning means
+operators cannot verify from logs that the base64 detector fired.
+**Recommendation:** Add an explicit SanitizeWarning when the base64
+decoder decodes a string and the decoded content contains any injection
+keyword, regardless of whether the full pattern matches. This provides
+an audit trail without changing the redaction behavior.
+**Status:** Open
+
+### SAN-003: Sanitizer coverage is model-version dependent
+**Severity:** Informational
+**Location:** `internal/sanitize/` (architectural concern)
+**Detail:** For 6 of 8 tested injection vector classes, the pipeline's
+security relies on the LLM provider's model alignment rather than
+Orcastrator's sanitizer. This means that upgrading to a new model version
+(e.g. from claude-sonnet-4-20250514 to a future version) could change the
+security posture without any code changes. A model with weaker instruction-
+following discipline or different alignment training could be vulnerable to
+vectors 3, 5, 6, 7, or 8 even though all currently pass.
+**Recommendation:** When upgrading model versions in agent configs, re-run
+the injection stress test (05-injection-stress-test.yaml) against all 8
+vectors before deploying to production. Add this to the deployment checklist
+in docs/deployment.md.
+**Status:** Informational — no code change required. Document in deployment
+checklist.
+
 ### SEC-012: Redis UpdateTask is not atomic (read-modify-write race)
 **Location:** `internal/store/redis/redis.go` — `UpdateTask()`
 **Severity:** Medium
@@ -220,6 +300,9 @@ enhancement could add a separate `--metrics-port` flag.
 | SEC4-013 | math/rand/v2 for retry jitter | Informational | Accepted |
 | SEC4-014 | Single-tenant by design | Informational | Accepted |
 | SEC4-015 | DB connection error may leak creds | Low | Accepted |
+| SAN-001 | Sanitizer active detection covers 2 of 8 vector classes | Medium | Open |
+| SAN-002 | Base64 detector produces no sanitizer warnings | Low | Open |
+| SAN-003 | Sanitizer coverage is model-version dependent | Informational | Open |
 
 ---
 

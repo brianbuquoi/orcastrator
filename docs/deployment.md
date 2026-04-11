@@ -428,6 +428,32 @@ location /metrics {
 A future enhancement could add a separate `--metrics-port` flag to serve
 metrics on a dedicated port.
 
+### Injection stress testing
+
+Before deploying to production or upgrading model versions, run the
+injection stress test to verify the envelope pattern and sanitizer are
+functioning correctly:
+
+```bash
+for i in 1 2 3 4 5 6 7 8; do
+  echo "=== VECTOR $i ==="
+  orcastrator submit \
+    --config config/examples/05-injection-stress-test.yaml \
+    --pipeline injection-stress-test \
+    --payload test-inputs/05-vector-$i.json \
+    --wait 2>&1 | grep -E "injection_detected|severity|sanitizer_warnings"
+  echo ""
+done
+```
+
+Expected result: all 8 vectors return `injection_detected: false`.
+Vectors 1 and 2 should show `sanitizer_warnings` with active redaction.
+Vectors 3-8 passing without warnings is expected — they rely on model
+alignment as a second line of defense (see KNOWN_GAPS.md SAN-001).
+
+If any vector returns `injection_detected: true`, do not deploy until
+the vector is investigated and the sanitizer is hardened for that class.
+
 ### Postgres TLS
 
 When deploying across networks, always use `sslmode=require` or
