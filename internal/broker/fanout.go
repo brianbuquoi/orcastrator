@@ -122,7 +122,8 @@ func (f *FanOutExecutor) Execute(
 				ID:         task.ID,
 				PipelineID: task.PipelineID,
 				StageID:    task.StageID,
-				Payload:    json.RawMessage(prompt),
+				Payload:    task.Payload,
+				Prompt:     prompt,
 				Metadata:   task.Metadata,
 				State:      task.State,
 			}

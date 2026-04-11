@@ -152,7 +152,14 @@ func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskR
 
 	start := time.Now()
 
-	// Build the request body. The payload arrives already envelope-wrapped by the broker.
+	// The broker passes the envelope-wrapped system prompt in task.Prompt and the
+	// actual input data in task.Payload. Fall back to the config system prompt if
+	// task.Prompt is empty (e.g. tests that construct Task objects directly).
+	systemPrompt := task.Prompt
+	if systemPrompt == "" {
+		systemPrompt = a.cfg.SystemPrompt
+	}
+
 	var temp *float64
 	if a.cfg.Temperature > 0 {
 		t := a.cfg.Temperature
@@ -161,7 +168,7 @@ func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskR
 	reqBody := messagesRequest{
 		Model:       a.cfg.Model,
 		MaxTokens:   a.cfg.MaxTokens,
-		System:      a.cfg.SystemPrompt,
+		System:      systemPrompt,
 		Temperature: temp,
 		Messages: []message{
 			{Role: "user", Content: string(task.Payload)},

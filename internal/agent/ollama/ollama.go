@@ -135,9 +135,14 @@ type tagModel struct {
 func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskResult, error) {
 	start := time.Now()
 
+	systemPrompt := task.Prompt
+	if systemPrompt == "" {
+		systemPrompt = a.cfg.SystemPrompt
+	}
+
 	messages := []chatMessage{}
-	if a.cfg.SystemPrompt != "" {
-		messages = append(messages, chatMessage{Role: "system", Content: a.cfg.SystemPrompt})
+	if systemPrompt != "" {
+		messages = append(messages, chatMessage{Role: "system", Content: systemPrompt})
 	}
 	messages = append(messages, chatMessage{Role: "user", Content: string(task.Payload)})
 

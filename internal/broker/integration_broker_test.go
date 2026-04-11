@@ -372,7 +372,7 @@ func TestIntegrationInjectionEndToEnd(t *testing.T) {
 		}},
 		"agent2": &mockAgent{id: "agent2", provider: "mock", handler: func(_ context.Context, task *broker.Task) (*broker.TaskResult, error) {
 			// Record what stage 2 received.
-			stage2Received.Store(string(task.Payload))
+			stage2Received.Store(task.Prompt)
 			return &broker.TaskResult{
 				Payload: json.RawMessage(`{"result":"safe output"}`),
 			}, nil
@@ -858,11 +858,11 @@ func TestIntegrationEnvelopeWrapping(t *testing.T) {
 
 	agents := map[string]broker.Agent{
 		"agent1": &mockAgent{id: "agent1", provider: "mock", handler: func(_ context.Context, task *broker.Task) (*broker.TaskResult, error) {
-			stage1Input.Store(string(task.Payload))
+			stage1Input.Store(task.Prompt)
 			return &broker.TaskResult{Payload: json.RawMessage(`{"data":"stage1 output"}`)}, nil
 		}},
 		"agent2": &mockAgent{id: "agent2", provider: "mock", handler: func(_ context.Context, task *broker.Task) (*broker.TaskResult, error) {
-			stage2Input.Store(string(task.Payload))
+			stage2Input.Store(task.Prompt)
 			return &broker.TaskResult{Payload: json.RawMessage(`{"result":"done"}`)}, nil
 		}},
 	}

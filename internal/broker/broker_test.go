@@ -897,7 +897,7 @@ func TestFirstStageNoEnvelope(t *testing.T) {
 	promptCaptured := make(chan struct{})
 
 	agents["agent1"].(*mockAgent).setHandler(func(_ context.Context, task *broker.Task) (*broker.TaskResult, error) {
-		capturedPrompt = string(task.Payload)
+		capturedPrompt = task.Prompt
 		close(promptCaptured)
 		return &broker.TaskResult{Payload: json.RawMessage(`{"category":"test"}`)}, nil
 	})

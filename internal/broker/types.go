@@ -30,6 +30,7 @@ type Task struct {
 	OutputSchemaName      string          `json:"output_schema_name"`
 	OutputSchemaVersion   string          `json:"output_schema_version"`
 	Payload               json.RawMessage `json:"payload"`
+	Prompt                string          `json:"prompt,omitempty"`
 	Metadata              map[string]any  `json:"metadata,omitempty"`
 	State                 TaskState       `json:"state"`
 	Attempts              int             `json:"attempts"`

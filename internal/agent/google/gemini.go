@@ -174,14 +174,19 @@ func (a *Adapter) Execute(ctx context.Context, task *broker.Task) (*broker.TaskR
 
 	start := time.Now()
 
+	systemPrompt := task.Prompt
+	if systemPrompt == "" {
+		systemPrompt = a.cfg.SystemPrompt
+	}
+
 	reqBody := generateRequest{
 		Contents: []content{
 			{Role: "user", Parts: []part{{Text: string(task.Payload)}}},
 		},
 	}
-	if a.cfg.SystemPrompt != "" {
+	if systemPrompt != "" {
 		reqBody.SystemInstruction = &content{
-			Parts: []part{{Text: a.cfg.SystemPrompt}},
+			Parts: []part{{Text: systemPrompt}},
 		}
 	}
 

@@ -114,7 +114,7 @@ func TestEnvelopeCoverage_OnSuccessRouting(t *testing.T) {
 	var mu sync.Mutex
 	agents["agent2"].(*mockAgent).setHandler(func(_ context.Context, task *broker.Task) (*broker.TaskResult, error) {
 		mu.Lock()
-		stage2Prompt = string(task.Payload)
+		stage2Prompt = task.Prompt
 		mu.Unlock()
 		return &broker.TaskResult{Payload: json.RawMessage(`{"done":true}`)}, nil
 	})
@@ -227,7 +227,7 @@ func TestEnvelopeCoverage_LoopbackRouting(t *testing.T) {
 			}
 			// Loopback call: capture prompt for verification
 			muLb.Lock()
-			stage1PromptOnLoopback = string(task.Payload)
+			stage1PromptOnLoopback = task.Prompt
 			muLb.Unlock()
 			return &broker.TaskResult{Payload: json.RawMessage(`{"msg":"fixed"}`)}, nil
 		}},
@@ -296,7 +296,7 @@ func TestEnvelopeCoverage_RetryPath(t *testing.T) {
 		}
 		// Second attempt: capture prompt
 		muRetry.Lock()
-		retryPrompt = string(task.Payload)
+		retryPrompt = task.Prompt
 		muRetry.Unlock()
 		return &broker.TaskResult{Payload: json.RawMessage(`{"data":"ok"}`)}, nil
 	})
@@ -359,7 +359,7 @@ func TestEnvelopeCoverage_PostReload(t *testing.T) {
 	var muReload sync.Mutex
 	agents["agent2"].(*mockAgent).setHandler(func(_ context.Context, task *broker.Task) (*broker.TaskResult, error) {
 		muReload.Lock()
-		stage2Prompt = string(task.Payload)
+		stage2Prompt = task.Prompt
 		muReload.Unlock()
 		return &broker.TaskResult{Payload: json.RawMessage(`{"done":true}`)}, nil
 	})
@@ -539,7 +539,7 @@ func TestEnvelopeDelimiterCollision(t *testing.T) {
 	var muDelim sync.Mutex
 	agents["agent2"].(*mockAgent).setHandler(func(_ context.Context, task *broker.Task) (*broker.TaskResult, error) {
 		muDelim.Lock()
-		stage2Prompt = string(task.Payload)
+		stage2Prompt = task.Prompt
 		muDelim.Unlock()
 		return &broker.TaskResult{Payload: json.RawMessage(`{"done":true}`)}, nil
 	})

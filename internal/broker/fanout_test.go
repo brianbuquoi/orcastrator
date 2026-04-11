@@ -864,7 +864,7 @@ func TestFanOut_SanitizerRunsOnce(t *testing.T) {
 		agentID := id
 		agents[agentID].(*mockAgent).setHandler(
 			func(_ context.Context, task *broker.Task) (*broker.TaskResult, error) {
-				prompts.Store(agentID, string(task.Payload))
+				prompts.Store(agentID, task.Prompt)
 				return &broker.TaskResult{Payload: json.RawMessage(`{"score":1}`)}, nil
 			})
 	}
@@ -1434,7 +1434,7 @@ func TestFanOut_SanitizerRunsOnce_PerAgentPrompt(t *testing.T) {
 		agentID := id
 		agents[agentID].(*mockAgent).setHandler(
 			func(_ context.Context, task *broker.Task) (*broker.TaskResult, error) {
-				prompts.Store(agentID, string(task.Payload))
+				prompts.Store(agentID, task.Prompt)
 				return &broker.TaskResult{Payload: json.RawMessage(`{"score":42}`)}, nil
 			})
 	}
