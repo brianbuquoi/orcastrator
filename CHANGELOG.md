@@ -32,6 +32,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - API key zeroing improved: unsafe used to zero original backing
   memory, not just the copied slice
 
+## [0.2.3] - 2026-04-11
+
+### Fixed
+- Schema version mismatch now correctly detected at routing time. Previously
+  the check ran after task schema fields were already updated to the next
+  stage's versions, so IsCompatible always saw matching versions and mismatches
+  were never caught. The check now runs in routeSuccess before UpdateTask,
+  comparing the current stage's output version against the next stage's
+  expected input version. Adds version_mismatch metadata with full from/to
+  stage and schema version details.
+- Dead version checks removed from worker loop — they were structurally
+  incapable of detecting mismatches and created false confidence.
+
 ## [0.2.2] - 2026-04-11
 
 ### Fixed
