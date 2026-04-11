@@ -1,4 +1,4 @@
-// Package tracing provides OpenTelemetry instrumentation for Orcastrator.
+// Package tracing provides OpenTelemetry instrumentation for Overlord.
 // All state is held in a Tracer struct — no global state or init() functions.
 package tracing
 
@@ -74,7 +74,7 @@ func New(ctx context.Context, cfg Config) (*Tracer, error) {
 
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceNameKey.String("orcastrator"),
+			semconv.ServiceNameKey.String("overlord"),
 		),
 	)
 	if err != nil {
@@ -96,7 +96,7 @@ func New(ctx context.Context, cfg Config) (*Tracer, error) {
 
 	return &Tracer{
 		provider: tp,
-		tracer:   tp.Tracer("orcastrator"),
+		tracer:   tp.Tracer("overlord"),
 		prop:     prop,
 	}, nil
 }
@@ -107,7 +107,7 @@ func New(ctx context.Context, cfg Config) (*Tracer, error) {
 func NewWithExporter(ctx context.Context, exporter sdktrace.SpanExporter) (*Tracer, error) {
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceNameKey.String("orcastrator"),
+			semconv.ServiceNameKey.String("overlord"),
 		),
 	)
 	if err != nil {
@@ -126,7 +126,7 @@ func NewWithExporter(ctx context.Context, exporter sdktrace.SpanExporter) (*Trac
 
 	return &Tracer{
 		provider: tp,
-		tracer:   tp.Tracer("orcastrator"),
+		tracer:   tp.Tracer("overlord"),
 		prop:     prop,
 	}, nil
 }
@@ -134,7 +134,7 @@ func NewWithExporter(ctx context.Context, exporter sdktrace.SpanExporter) (*Trac
 // newNoop returns a Tracer backed by the no-op provider.
 func newNoop() *Tracer {
 	return &Tracer{
-		tracer: noop.NewTracerProvider().Tracer("orcastrator"),
+		tracer: noop.NewTracerProvider().Tracer("overlord"),
 		prop:   propagation.NewCompositeTextMapPropagator(),
 	}
 }
@@ -160,7 +160,7 @@ func (t *Tracer) Shutdown(ctx context.Context) error {
 
 // StartTaskSpan creates the root span for a task.
 func (t *Tracer) StartTaskSpan(ctx context.Context, taskID, pipelineID string) (context.Context, trace.Span) {
-	return t.tracer.Start(ctx, "orcastrator.task",
+	return t.tracer.Start(ctx, "overlord.task",
 		trace.WithAttributes(
 			attribute.String("task_id", taskID),
 			attribute.String("pipeline_id", pipelineID),
@@ -170,7 +170,7 @@ func (t *Tracer) StartTaskSpan(ctx context.Context, taskID, pipelineID string) (
 
 // StartStageSpan creates a child span for a stage execution.
 func (t *Tracer) StartStageSpan(ctx context.Context, stageID, agentID string, attempt int) (context.Context, trace.Span) {
-	return t.tracer.Start(ctx, "orcastrator.stage",
+	return t.tracer.Start(ctx, "overlord.stage",
 		trace.WithAttributes(
 			attribute.String("stage_id", stageID),
 			attribute.String("agent_id", agentID),
@@ -181,7 +181,7 @@ func (t *Tracer) StartStageSpan(ctx context.Context, stageID, agentID string, at
 
 // StartAgentSpan creates a child span for an LLM API call.
 func (t *Tracer) StartAgentSpan(ctx context.Context, provider, model string) (context.Context, trace.Span) {
-	return t.tracer.Start(ctx, "orcastrator.agent.execute",
+	return t.tracer.Start(ctx, "overlord.agent.execute",
 		trace.WithAttributes(
 			attribute.String("provider", provider),
 			attribute.String("model", model),

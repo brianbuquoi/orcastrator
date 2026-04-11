@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
-	"github.com/brianbuquoi/orcastrator/internal/store/memory"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/store/memory"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
@@ -1544,7 +1544,7 @@ func TestFanOut_InjectionInPriorOutput(t *testing.T) {
 }
 
 // ==========================================================================
-// Test §13: orcastrator_fanout_agent_results_total
+// Test §13: overlord_fanout_agent_results_total
 // ==========================================================================
 
 func TestFanOut_MetricsAgentResults(t *testing.T) {
@@ -1601,7 +1601,7 @@ func TestFanOut_MetricsAgentResults(t *testing.T) {
 }
 
 // ==========================================================================
-// Test §14: orcastrator_fanout_require_policy_failures_total
+// Test §14: overlord_fanout_require_policy_failures_total
 // ==========================================================================
 
 func TestFanOut_MetricsRequirePolicyFailures(t *testing.T) {

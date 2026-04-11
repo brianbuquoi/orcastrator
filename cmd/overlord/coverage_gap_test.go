@@ -120,8 +120,8 @@ func TestCLI_Submit_FilePayload_ValidJSON(t *testing.T) {
 func TestCLI_EnvVarPrecedence_Port(t *testing.T) {
 	// envOrDefault returns env var value if set, otherwise the default.
 	t.Run("env_set", func(t *testing.T) {
-		t.Setenv("ORCASTRATOR_PORT", "9090")
-		got := envOrDefault("ORCASTRATOR_PORT", "8080")
+		t.Setenv("OVERLORD_PORT", "9090")
+		got := envOrDefault("OVERLORD_PORT", "8080")
 		if got != "9090" {
 			t.Fatalf("expected 9090, got %s", got)
 		}
@@ -129,16 +129,16 @@ func TestCLI_EnvVarPrecedence_Port(t *testing.T) {
 
 	t.Run("env_not_set", func(t *testing.T) {
 		// Unset the variable (Setenv with empty string doesn't unset).
-		os.Unsetenv("ORCASTRATOR_PORT")
-		got := envOrDefault("ORCASTRATOR_PORT", "8080")
+		os.Unsetenv("OVERLORD_PORT")
+		got := envOrDefault("OVERLORD_PORT", "8080")
 		if got != "8080" {
 			t.Fatalf("expected default 8080, got %s", got)
 		}
 	})
 
 	t.Run("empty_env_returns_default", func(t *testing.T) {
-		t.Setenv("ORCASTRATOR_PORT", "")
-		got := envOrDefault("ORCASTRATOR_PORT", "8080")
+		t.Setenv("OVERLORD_PORT", "")
+		got := envOrDefault("OVERLORD_PORT", "8080")
 		if got != "8080" {
 			t.Fatalf("expected default 8080 for empty env var, got %s", got)
 		}
@@ -147,7 +147,7 @@ func TestCLI_EnvVarPrecedence_Port(t *testing.T) {
 
 func TestCLI_EnvVarPrecedence_APIKey(t *testing.T) {
 	t.Run("flag_wins_over_env", func(t *testing.T) {
-		t.Setenv("ORCASTRATOR_API_KEY", "env-key-123")
+		t.Setenv("OVERLORD_API_KEY", "env-key-123")
 
 		root := rootCmd()
 		root.SetArgs([]string{"--api-key", "flag-key-456", "health", "--help"})
@@ -161,7 +161,7 @@ func TestCLI_EnvVarPrecedence_APIKey(t *testing.T) {
 	})
 
 	t.Run("env_used_when_no_flag", func(t *testing.T) {
-		t.Setenv("ORCASTRATOR_API_KEY", "env-key-789")
+		t.Setenv("OVERLORD_API_KEY", "env-key-789")
 
 		// resolveAPIKey reads flag first, then env var.
 		root := rootCmd()
@@ -188,7 +188,7 @@ func TestCLI_Validate_ExampleConfigs(t *testing.T) {
 		examples, _ = filepath.Glob("config/examples/*.yaml")
 	}
 	if len(examples) == 0 {
-		t.Skip("no example configs found — run from project root or cmd/orcastrator")
+		t.Skip("no example configs found — run from project root or cmd/overlord")
 	}
 
 	for _, example := range examples {

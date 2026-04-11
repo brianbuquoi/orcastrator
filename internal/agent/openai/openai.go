@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/agent"
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/agent"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/metrics"
 )
 
 const (

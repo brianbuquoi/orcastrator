@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/broker"
 	"github.com/spf13/cobra"
 )
 
@@ -84,7 +84,7 @@ stores:
 	return configPath
 }
 
-// ── Scenario 1: orcastrator validate ──
+// ── Scenario 1: overlord validate ──
 
 func TestCLI_Validate_ValidConfig(t *testing.T) {
 	configPath := writeTestYAML(t)
@@ -183,7 +183,7 @@ func TestCLI_Validate_MissingConfigFile(t *testing.T) {
 	// Should not panic — clean error.
 }
 
-// ── Scenario 2: orcastrator health (unit-level test of health check logic) ──
+// ── Scenario 2: overlord health (unit-level test of health check logic) ──
 
 func TestCLI_Health_AgentResults(t *testing.T) {
 	// Test the result formatting logic.
@@ -363,10 +363,10 @@ func TestCLI_RootHelp_ContainsExample(t *testing.T) {
 	if !strings.Contains(output, "Quick start:") {
 		t.Error("root help should contain 'Quick start:' section")
 	}
-	if !strings.Contains(output, "orcastrator submit") {
+	if !strings.Contains(output, "overlord submit") {
 		t.Error("root help should show submit example")
 	}
-	if !strings.Contains(output, "orcastrator validate") {
+	if !strings.Contains(output, "overlord validate") {
 		t.Error("root help should show validate example")
 	}
 }

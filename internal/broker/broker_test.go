@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/agent"
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/store/memory"
+	"github.com/brianbuquoi/overlord/internal/agent"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/store/memory"
 )
 
 // Verify mockAgent implements broker.Agent at compile time.

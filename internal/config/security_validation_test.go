@@ -10,7 +10,7 @@ import (
 
 // Test 15: Redis key collision from IDs containing colons.
 // If pipelineID="foo:bar" stageID="baz" and pipelineID="foo" stageID="bar:baz"
-// both produce key "orcastrator:queue:foo:bar:baz", this is a collision bug.
+// both produce key "overlord:queue:foo:bar:baz", this is a collision bug.
 // The config validator should reject IDs containing ":".
 func TestSecurity_RedisKeyCollision_IDsWithColons(t *testing.T) {
 	cfg := &Config{

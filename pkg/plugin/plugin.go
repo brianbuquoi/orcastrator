@@ -1,10 +1,10 @@
-// Package plugin defines the public API for Orcastrator plugin authors.
+// Package plugin defines the public API for Overlord plugin authors.
 // Plugin authors implement AgentPlugin and Agent, compile to a .so file,
 // and export a package-level variable:
 //
 //	var Plugin plugin.AgentPlugin
 //
-// Orcastrator loads the .so at startup and registers the provider.
+// Overlord loads the .so at startup and registers the provider.
 package plugin
 
 import (

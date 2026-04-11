@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/store"
-	redisstore "github.com/brianbuquoi/orcastrator/internal/store/redis"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/store"
+	redisstore "github.com/brianbuquoi/overlord/internal/store/redis"
 )
 
 func newRedisTestStore(t *testing.T, prefix string) (*redisstore.RedisStore, *miniredis.Miniredis, *goredis.Client) {
@@ -31,7 +31,7 @@ func newRedisTestStore(t *testing.T, prefix string) (*redisstore.RedisStore, *mi
 // UpdateTask (completing the task), the task ID remains in the processing list.
 //
 // This is at-least-once delivery: the task is never lost, but it is also not
-// automatically re-enqueued. Orcastrator does not currently implement processing
+// automatically re-enqueued. Overlord does not currently implement processing
 // list recovery.
 //
 // TODO(recovery): On startup, scan all processing:{stageID} lists. For each

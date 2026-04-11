@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/broker"
 )
 
 // TestWSHubShutdownBeforeEvents verifies that shutting down a wsHub

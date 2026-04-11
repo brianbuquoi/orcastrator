@@ -7,8 +7,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/brianbuquoi/orcastrator/internal/store"
-	redisstore "github.com/brianbuquoi/orcastrator/internal/store/redis"
+	"github.com/brianbuquoi/overlord/internal/store"
+	redisstore "github.com/brianbuquoi/overlord/internal/store/redis"
 )
 
 func TestRedisStoreConformance(t *testing.T) {

@@ -12,9 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/store"
-	pgstore "github.com/brianbuquoi/orcastrator/internal/store/postgres"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/store"
+	pgstore "github.com/brianbuquoi/overlord/internal/store/postgres"
 )
 
 func setupPostgresTest(t *testing.T) (*pgxpool.Pool, string) {
@@ -32,7 +32,7 @@ func setupPostgresTest(t *testing.T) (*pgxpool.Pool, string) {
 	t.Cleanup(pool.Close)
 
 	// Use a unique table per test to avoid interference.
-	table := "orcastrator_tasks_test_" + uuid.New().String()[:8]
+	table := "overlord_tasks_test_" + uuid.New().String()[:8]
 	// Replace hyphens with underscores for valid SQL identifier.
 	safeTable := ""
 	for _, c := range table {
@@ -158,7 +158,7 @@ func TestPostgres_MigrationIdempotency(t *testing.T) {
 	}
 	defer pool.Close()
 
-	migrationSQL := `CREATE TABLE IF NOT EXISTS orcastrator_tasks (
+	migrationSQL := `CREATE TABLE IF NOT EXISTS overlord_tasks (
 		id                    TEXT PRIMARY KEY,
 		pipeline_id           TEXT NOT NULL,
 		stage_id              TEXT NOT NULL,
@@ -177,7 +177,7 @@ func TestPostgres_MigrationIdempotency(t *testing.T) {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_tasks_stage_state_created
-		ON orcastrator_tasks (stage_id, state, created_at);`
+		ON overlord_tasks (stage_id, state, created_at);`
 
 	// Run migration twice — second run must not error.
 	for i := 0; i < 2; i++ {

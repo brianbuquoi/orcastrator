@@ -1,8 +1,8 @@
-# Orcastrator — AI Agent Orchestration Platform
+# Overlord — AI Agent Orchestration Platform
 
 ## Project Overview
 
-Orcastrator is a Go-based orchestration engine for AI agent pipelines.
+Overlord is a Go-based orchestration engine for AI agent pipelines.
 Pipelines are defined entirely in YAML. Agents are LLM adapters (API-only).
 The broker routes tasks between agents through typed, versioned stages.
 Schema versioning is a first-class concept in the YAML config.
@@ -10,7 +10,7 @@ Schema versioning is a first-class concept in the YAML config.
 ## Architecture
 
 ```
-cmd/orcastrator/        → CLI entrypoint
+cmd/overlord/        → CLI entrypoint
 internal/config/        → YAML parsing, validation, hot-reload (rejects symlinks)
 internal/broker/        → Task routing, retry logic, goroutine pools
 internal/agent/         → Agent interface + provider adapters
@@ -190,11 +190,11 @@ auth:
 stores:
   redis:
     url_env: REDIS_URL
-    key_prefix: "orcastrator:"
+    key_prefix: "overlord:"
     task_ttl: 24h
   postgres:
     dsn_env: DATABASE_URL
-    table: orcastrator_tasks
+    table: overlord_tasks
   memory:
     max_tasks: 10000
 ```
@@ -202,7 +202,7 @@ stores:
 ## Development
 ```bash
 # Run the service
-go run ./cmd/orcastrator --config config/examples/basic.yaml
+go run ./cmd/overlord --config config/examples/basic.yaml
 
 # Make targets (preferred)
 make test-unit        # fast, no services needed (go test -race ./...)
@@ -227,7 +227,7 @@ OPENAI_API_KEY
 OLLAMA_ENDPOINT       # default: http://localhost:11434
 REDIS_URL
 DATABASE_URL
-ORCASTRATOR_PORT      # default: 8080
+OVERLORD_PORT      # default: 8080
 ```
 
 ## Testing Philosophy

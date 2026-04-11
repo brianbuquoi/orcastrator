@@ -1,4 +1,4 @@
-// Orcastrator is a YAML-driven orchestration engine for AI agent pipelines.
+// Overlord is a YAML-driven orchestration engine for AI agent pipelines.
 // This binary provides the CLI for running pipelines, submitting tasks,
 // validating configuration, and managing schema migrations.
 package main
@@ -20,22 +20,22 @@ import (
 
 	"github.com/spf13/cobra"
 
-	exmigrations "github.com/brianbuquoi/orcastrator/examples/code_review/migrations"
-	"github.com/brianbuquoi/orcastrator/internal/agent"
-	"github.com/brianbuquoi/orcastrator/internal/agent/registry"
-	"github.com/brianbuquoi/orcastrator/internal/api"
-	"github.com/brianbuquoi/orcastrator/internal/auth"
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
-	"github.com/brianbuquoi/orcastrator/internal/migration"
-	internalplugin "github.com/brianbuquoi/orcastrator/internal/plugin"
-	"github.com/brianbuquoi/orcastrator/internal/store/memory"
-	pgstore "github.com/brianbuquoi/orcastrator/internal/store/postgres"
-	redisstore "github.com/brianbuquoi/orcastrator/internal/store/redis"
-	"github.com/brianbuquoi/orcastrator/internal/tracing"
-	pluginapi "github.com/brianbuquoi/orcastrator/pkg/plugin"
+	exmigrations "github.com/brianbuquoi/overlord/examples/code_review/migrations"
+	"github.com/brianbuquoi/overlord/internal/agent"
+	"github.com/brianbuquoi/overlord/internal/agent/registry"
+	"github.com/brianbuquoi/overlord/internal/api"
+	"github.com/brianbuquoi/overlord/internal/auth"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/migration"
+	internalplugin "github.com/brianbuquoi/overlord/internal/plugin"
+	"github.com/brianbuquoi/overlord/internal/store/memory"
+	pgstore "github.com/brianbuquoi/overlord/internal/store/postgres"
+	redisstore "github.com/brianbuquoi/overlord/internal/store/redis"
+	"github.com/brianbuquoi/overlord/internal/tracing"
+	pluginapi "github.com/brianbuquoi/overlord/pkg/plugin"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
@@ -65,9 +65,9 @@ func main() {
 
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "orcastrator",
+		Use:   "overlord",
 		Short: "AI Agent Orchestration Platform",
-		Long: `Orcastrator is an orchestration engine for AI agent pipelines.
+		Long: `Overlord is an orchestration engine for AI agent pipelines.
 
 Pipelines are defined in YAML. Each pipeline has stages that route tasks
 through LLM agents (Anthropic, OpenAI, Google, Ollama) with typed,
@@ -75,25 +75,25 @@ versioned I/O contracts and automatic prompt injection sanitization.
 
 Quick start:
   # Validate your pipeline config
-  orcastrator validate --config pipeline.yaml
+  overlord validate --config pipeline.yaml
 
   # Start the engine
-  orcastrator run --config pipeline.yaml
+  overlord run --config pipeline.yaml
 
   # Submit a task
-  orcastrator submit --config pipeline.yaml --pipeline my-pipeline \
+  overlord submit --config pipeline.yaml --pipeline my-pipeline \
     --payload '{"request": "hello"}'
 
   # Check task status
-  orcastrator status --config pipeline.yaml --task <task-id>
+  overlord status --config pipeline.yaml --task <task-id>
 
   # Watch a task until it completes
-  orcastrator status --config pipeline.yaml --task <task-id> --watch`,
+  overlord status --config pipeline.yaml --task <task-id> --watch`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 
-	root.PersistentFlags().String("api-key", "", "API key for authenticated requests (or set ORCASTRATOR_API_KEY)")
+	root.PersistentFlags().String("api-key", "", "API key for authenticated requests (or set OVERLORD_API_KEY)")
 
 	root.AddCommand(runCmd())
 	root.AddCommand(submitCmd())
@@ -109,7 +109,7 @@ Quick start:
 	return root
 }
 
-// resolveAPIKey returns the API key from --api-key flag or ORCASTRATOR_API_KEY env var.
+// resolveAPIKey returns the API key from --api-key flag or OVERLORD_API_KEY env var.
 // Used by CLI commands that make authenticated HTTP requests to the API.
 var _ = resolveAPIKey
 
@@ -117,7 +117,7 @@ func resolveAPIKey(cmd *cobra.Command) string {
 	if key, _ := cmd.Flags().GetString("api-key"); key != "" {
 		return key
 	}
-	return os.Getenv("ORCASTRATOR_API_KEY")
+	return os.Getenv("OVERLORD_API_KEY")
 }
 
 // --- Shared helpers ---
@@ -201,7 +201,7 @@ func buildStore(cfg *config.Config, logger *slog.Logger) (broker.Store, error) {
 		}
 		table := cfg.Stores.Postgres.Table
 		if table == "" {
-			table = "orcastrator_tasks"
+			table = "overlord_tasks"
 		}
 		logger.Info("using postgres store", "table", table)
 		return pgstore.New(pool, table)
@@ -270,7 +270,7 @@ func runCmd() *cobra.Command {
 					p = filepath.Join(basePath, p)
 				}
 				if _, err := os.Stat(p); err != nil {
-					return fmt.Errorf("schema file not found: %s (referenced by %s@%s)\nHint: check the path in schema_registry or run 'orcastrator validate --config %s'",
+					return fmt.Errorf("schema file not found: %s (referenced by %s@%s)\nHint: check the path in schema_registry or run 'overlord validate --config %s'",
 						p, entry.Name, entry.Version, configPath)
 				}
 			}
@@ -310,7 +310,7 @@ func runCmd() *cobra.Command {
 				return err
 			}
 
-			logger.Info("orcastrator starting",
+			logger.Info("overlord starting",
 				"config", configPath,
 				"pipelines", len(cfg.Pipelines),
 				"agents", len(cfg.Agents),
@@ -409,7 +409,7 @@ func runCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "", "path to pipeline YAML config file")
-	cmd.Flags().StringVar(&port, "port", envOrDefault("ORCASTRATOR_PORT", "8080"), "HTTP server port")
+	cmd.Flags().StringVar(&port, "port", envOrDefault("OVERLORD_PORT", "8080"), "HTTP server port")
 	cmd.MarkFlagRequired("config")
 	return cmd
 }
@@ -449,13 +449,13 @@ reference prefixed with @.
 Use --dry-run to validate the payload against the first stage's input schema
 without actually submitting the task. This is useful for debugging schema
 issues without consuming API quota.`,
-		Example: `  orcastrator submit --config pipeline.yaml --pipeline my-pipeline \
+		Example: `  overlord submit --config pipeline.yaml --pipeline my-pipeline \
     --payload '{"request": "hello"}'
 
-  orcastrator submit --config pipeline.yaml --pipeline my-pipeline \
+  overlord submit --config pipeline.yaml --pipeline my-pipeline \
     --payload @input.json --wait
 
-  orcastrator submit --config pipeline.yaml --pipeline my-pipeline \
+  overlord submit --config pipeline.yaml --pipeline my-pipeline \
     --payload '{"request": "test"}' --dry-run`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := newLogger()
@@ -625,7 +625,7 @@ Use --watch to poll every 2 seconds until the task reaches a terminal state
 
 			task, err := b.GetTask(cmd.Context(), taskID)
 			if err != nil {
-				return fmt.Errorf("task %q not found: %w\nHint: verify the task ID with 'orcastrator submit'", taskID, err)
+				return fmt.Errorf("task %q not found: %w\nHint: verify the task ID with 'overlord submit'", taskID, err)
 			}
 
 			printTaskStatus(cmd.OutOrStdout(), task)
@@ -670,7 +670,7 @@ func printTaskStatus(w interface{ Write([]byte) (int, error) }, task *broker.Tas
 func watchTask(ctx context.Context, b *broker.Broker, taskID string, w interface{ Write([]byte) (int, error) }) error {
 	task, err := b.GetTask(ctx, taskID)
 	if err != nil {
-		return fmt.Errorf("task %q not found: %w\nHint: verify the task ID with 'orcastrator submit'", taskID, err)
+		return fmt.Errorf("task %q not found: %w\nHint: verify the task ID with 'overlord submit'", taskID, err)
 	}
 
 	printTaskStatus(w, task)
@@ -1642,15 +1642,15 @@ func completionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "completion [bash|zsh]",
 		Short: "Generate shell completion scripts",
-		Long: `Generate shell completion scripts for orcastrator.
+		Long: `Generate shell completion scripts for overlord.
 
 To load completions:
 
   # Bash (add to ~/.bashrc for persistence)
-  source <(orcastrator completion bash)
+  source <(overlord completion bash)
 
   # Zsh (add to ~/.zshrc for persistence)
-  source <(orcastrator completion zsh)`,
+  source <(overlord completion zsh)`,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: []string{"bash", "zsh"},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1723,7 +1723,7 @@ func fmtConfigError(configPath string, err error) error {
 		return fmt.Errorf("config path rejected: %w\nHint: config must be a regular file, not a symlink or special file", err)
 	}
 	if strings.Contains(err.Error(), "yaml:") || strings.Contains(err.Error(), "invalid YAML structure") {
-		return fmt.Errorf("invalid YAML in %s: %w\nHint: validate syntax with 'orcastrator validate --config %s'", configPath, err, configPath)
+		return fmt.Errorf("invalid YAML in %s: %w\nHint: validate syntax with 'overlord validate --config %s'", configPath, err, configPath)
 	}
 	return fmt.Errorf("failed to load config %s: %w", configPath, err)
 }

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <!--
-  Orcastrator Pipeline Dashboard
+  Overlord Pipeline Dashboard
   Single-file embedded dashboard served by the Go binary.
 
   Manual Verification Steps:
-  1. Start Orcastrator: go run ./cmd/orcastrator --config config/examples/code_review.yaml
+  1. Start Overlord: go run ./cmd/overlord --config config/examples/code_review.yaml
   2. Open http://localhost:8080/dashboard in a browser
   3. Verify: pipeline list shows configured pipelines in left sidebar
   4. Verify: stage topology diagram renders with nodes and edges
@@ -23,7 +23,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Orcastrator Dashboard</title>
+<title>Overlord Dashboard</title>
 <style>
   :root {
     --bg: #0f1117;
@@ -131,7 +131,7 @@
 
 <div id="login-overlay" class="login-overlay hidden">
   <div class="login-box">
-    <h2>Orcastrator</h2>
+    <h2>Overlord</h2>
     <p style="color:var(--text-muted);font-size:12px;margin-bottom:16px;">Enter your API key to access the dashboard</p>
     <input id="login-key" type="password" placeholder="API Key" autocomplete="off">
     <button id="login-btn">Sign In</button>
@@ -141,7 +141,7 @@
 
 <div id="app" class="app hidden">
   <div class="topbar">
-    <h1>Orcastrator</h1>
+    <h1>Overlord</h1>
     <div class="health-summary">
       <div id="health-agents"></div>
       <span class="refresh-indicator" id="last-scrape"></span>
@@ -196,15 +196,15 @@
   // --- Auth ---
 
   function getStoredKey() {
-    return sessionStorage.getItem('orcastrator_api_key');
+    return sessionStorage.getItem('overlord_api_key');
   }
 
   function setStoredKey(key) {
-    sessionStorage.setItem('orcastrator_api_key', key);
+    sessionStorage.setItem('overlord_api_key', key);
   }
 
   function clearStoredKey() {
-    sessionStorage.removeItem('orcastrator_api_key');
+    sessionStorage.removeItem('overlord_api_key');
   }
 
   function authHeaders() {
@@ -548,10 +548,10 @@
       const resp = await apiFetch('/metrics');
       if (!resp.ok) return;
       const text = await resp.text();
-      // Parse Prometheus text: orcastrator_stage_queue_depth{stage="...",pipeline="..."} N
+      // Parse Prometheus text: overlord_stage_queue_depth{stage="...",pipeline="..."} N
       const lines = text.split('\n');
       lines.forEach(function(line) {
-        var m = line.match(/orcastrator_stage_queue_depth\{.*?stage="([^"]+)".*?\}\s+(\d+)/);
+        var m = line.match(/overlord_stage_queue_depth\{.*?stage="([^"]+)".*?\}\s+(\d+)/);
         if (m) {
           var stageId = m[1], depth = parseInt(m[2], 10);
           if (window._stageMap[stageId]) {

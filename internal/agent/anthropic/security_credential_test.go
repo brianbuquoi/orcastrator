@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/broker"
 )
 
 const canaryKey = "sk-test-CANARY-VALUE-12345"

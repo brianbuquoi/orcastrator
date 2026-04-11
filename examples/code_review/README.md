@@ -19,7 +19,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 make example-code-review
 
 # Or manually:
-go run ./cmd/orcastrator submit \
+go run ./cmd/overlord submit \
   --config config/examples/code_review.yaml \
   --pipeline code-review \
   --payload @examples/code_review/sample_input.json \

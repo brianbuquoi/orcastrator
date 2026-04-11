@@ -1,10 +1,10 @@
-# Contributing to Orcastrator
+# Contributing to Overlord
 
 ## Getting started
 
 ```bash
-git clone https://github.com/brianbuquoi/orcastrator.git
-cd orcastrator
+git clone https://github.com/brianbuquoi/overlord.git
+cd overlord
 make test-unit
 ```
 
@@ -56,7 +56,7 @@ next stage.
 
 ## Writing a Plugin (Custom Provider Adapter)
 
-Plugins let you add custom LLM providers without modifying Orcastrator.
+Plugins let you add custom LLM providers without modifying Overlord.
 Each plugin is a Go shared library (.so) that exports a single symbol.
 
 ### 1. Implement `AgentPlugin` and `Agent`
@@ -64,7 +64,7 @@ Each plugin is a Go shared library (.so) that exports a single symbol.
 Import the public plugin API:
 
 ```go
-import "github.com/brianbuquoi/orcastrator/pkg/plugin"
+import "github.com/brianbuquoi/overlord/pkg/plugin"
 ```
 
 Create a type that implements `plugin.AgentPlugin`:
@@ -113,7 +113,7 @@ agents:
 
 - Go's `plugin` package only works on **Linux and macOS** with **CGO enabled**.
 - Plugins must be compiled with the **same Go version** and **same module
-  dependencies** as the Orcastrator binary.
+  dependencies** as the Overlord binary.
 - Tests that load actual .so files must be tagged `//go:build plugin_test`.
 
 See `examples/plugins/echo/` for a complete example. Build it with

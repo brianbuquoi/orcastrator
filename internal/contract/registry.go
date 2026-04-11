@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/brianbuquoi/orcastrator/internal/config"
+	"github.com/brianbuquoi/overlord/internal/config"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 

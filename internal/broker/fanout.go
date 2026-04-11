@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
-	"github.com/brianbuquoi/orcastrator/internal/sanitize"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/sanitize"
 )
 
 // FanOutAgentResult holds one agent's result within a fan-out execution.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brianbuquoi/orcastrator/internal/config"
+	"github.com/brianbuquoi/overlord/internal/config"
 )
 
 // ===== 1. Error message quality =====

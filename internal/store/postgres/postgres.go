@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/store"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/store"
 )
 
 // validTableName matches safe SQL identifiers: letters/underscore start,
@@ -29,7 +29,7 @@ type PostgresStore struct {
 	table string
 }
 
-// New creates a PostgresStore. table is the task table name (e.g. "orcastrator_tasks").
+// New creates a PostgresStore. table is the task table name (e.g. "overlord_tasks").
 // Returns an error if the table name contains unsafe characters that could
 // enable SQL injection when interpolated into queries.
 func New(pool *pgxpool.Pool, table string) (*PostgresStore, error) {

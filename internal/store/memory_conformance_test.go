@@ -3,8 +3,8 @@ package store_test
 import (
 	"testing"
 
-	"github.com/brianbuquoi/orcastrator/internal/store"
-	"github.com/brianbuquoi/orcastrator/internal/store/memory"
+	"github.com/brianbuquoi/overlord/internal/store"
+	"github.com/brianbuquoi/overlord/internal/store/memory"
 )
 
 func TestMemoryStoreConformance(t *testing.T) {

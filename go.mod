@@ -1,4 +1,4 @@
-module github.com/brianbuquoi/orcastrator
+module github.com/brianbuquoi/overlord
 
 go 1.25.9
 

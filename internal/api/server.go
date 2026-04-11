@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/auth"
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/dashboard"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/auth"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/dashboard"
+	"github.com/brianbuquoi/overlord/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -63,7 +63,7 @@ func (r *replayAllRateLimiter) allow(pipelineID string) bool {
 	return true
 }
 
-// Server is the HTTP/WebSocket server for the Orcastrator observation API.
+// Server is the HTTP/WebSocket server for the Overlord observation API.
 type Server struct {
 	broker           *broker.Broker
 	hub              *wsHub

@@ -3,7 +3,7 @@ package metrics_test
 import (
 	"testing"
 
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/metrics"
 )
 
 func TestNew_ReturnsIndependentRegistries(t *testing.T) {
@@ -13,8 +13,8 @@ func TestNew_ReturnsIndependentRegistries(t *testing.T) {
 	// Increment a counter on m1; m2 should be unaffected.
 	m1.TasksTotal.WithLabelValues("p1", "s1", "DONE").Inc()
 
-	fam1 := gatherCounter(t, m1, "orcastrator_tasks_total")
-	fam2 := gatherCounter(t, m2, "orcastrator_tasks_total")
+	fam1 := gatherCounter(t, m1, "overlord_tasks_total")
+	fam2 := gatherCounter(t, m2, "overlord_tasks_total")
 
 	if fam1 != 1 {
 		t.Fatalf("m1 counter should be 1, got %v", fam1)
@@ -48,14 +48,14 @@ func TestNew_AllCollectorsRegistered(t *testing.T) {
 	}
 
 	want := map[string]bool{
-		"orcastrator_tasks_total":                    false,
-		"orcastrator_task_duration_seconds":          false,
-		"orcastrator_agent_request_duration_seconds": false,
-		"orcastrator_agent_tokens_total":             false,
-		"orcastrator_task_retries_total":             false,
-		"orcastrator_tasks_dead_lettered_total":      false,
-		"orcastrator_sanitizer_redactions_total":     false,
-		"orcastrator_queue_depth":                    false,
+		"overlord_tasks_total":                    false,
+		"overlord_task_duration_seconds":          false,
+		"overlord_agent_request_duration_seconds": false,
+		"overlord_agent_tokens_total":             false,
+		"overlord_task_retries_total":             false,
+		"overlord_tasks_dead_lettered_total":      false,
+		"overlord_sanitizer_redactions_total":     false,
+		"overlord_queue_depth":                    false,
 	}
 
 	for _, f := range families {

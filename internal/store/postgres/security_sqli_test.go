@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/broker"
 )
 
 func TestSecurity_SQLInjection(t *testing.T) {
@@ -21,7 +21,7 @@ func TestSecurity_SQLInjection(t *testing.T) {
 		t.Skip("DATABASE_URL not set")
 	}
 
-	st, err := New(dsn, "orcastrator_tasks")
+	st, err := New(dsn, "overlord_tasks")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestSecurity_SQLInjection(t *testing.T) {
 		name  string
 		value string
 	}{
-		{"classic_drop", "'; DROP TABLE orcastrator_tasks; --"},
+		{"classic_drop", "'; DROP TABLE overlord_tasks; --"},
 		{"union_select", "' UNION SELECT * FROM pg_tables; --"},
 		{"comment_bypass", "admin'--"},
 		{"boolean_blind", "' OR '1'='1"},

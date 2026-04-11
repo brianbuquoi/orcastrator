@@ -13,14 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/agent"
-	"github.com/brianbuquoi/orcastrator/internal/api"
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
-	"github.com/brianbuquoi/orcastrator/internal/store/memory"
-	"github.com/brianbuquoi/orcastrator/internal/tracing"
+	"github.com/brianbuquoi/overlord/internal/agent"
+	"github.com/brianbuquoi/overlord/internal/api"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/store/memory"
+	"github.com/brianbuquoi/overlord/internal/tracing"
 )
 
 // Verify mockAgent implements broker.Agent at compile time.
@@ -142,8 +142,8 @@ func TestMetricsEndpointReturns200(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := string(body)
 	// Should contain valid Prometheus text format with our metric families.
-	if !strings.Contains(bodyStr, "orcastrator_tasks_total") {
-		t.Fatal("/metrics response does not contain orcastrator_tasks_total")
+	if !strings.Contains(bodyStr, "overlord_tasks_total") {
+		t.Fatal("/metrics response does not contain overlord_tasks_total")
 	}
 }
 
@@ -178,9 +178,9 @@ func TestTaskCompletionIncrementsCounter(t *testing.T) {
 
 	waitForState(t, st, task.ID, broker.TaskStateDone, 5*time.Second)
 
-	count := gatherCounter(t, m, "orcastrator_tasks_total")
+	count := gatherCounter(t, m, "overlord_tasks_total")
 	if count < 1 {
-		t.Fatalf("orcastrator_tasks_total should be >= 1, got %v", count)
+		t.Fatalf("overlord_tasks_total should be >= 1, got %v", count)
 	}
 }
 
@@ -223,9 +223,9 @@ func TestRetryIncrementsRetryCounter(t *testing.T) {
 
 	waitForState(t, st, task.ID, broker.TaskStateDone, 5*time.Second)
 
-	retries := gatherCounter(t, m, "orcastrator_task_retries_total")
+	retries := gatherCounter(t, m, "overlord_task_retries_total")
 	if retries < 1 {
-		t.Fatalf("orcastrator_task_retries_total should be >= 1, got %v", retries)
+		t.Fatalf("overlord_task_retries_total should be >= 1, got %v", retries)
 	}
 }
 
@@ -300,8 +300,8 @@ func TestRegistryIsolation(t *testing.T) {
 	m1.TasksTotal.WithLabelValues("p", "s", "DONE").Add(10)
 	m2.TasksTotal.WithLabelValues("p", "s", "DONE").Add(3)
 
-	v1 := gatherCounter(t, m1, "orcastrator_tasks_total")
-	v2 := gatherCounter(t, m2, "orcastrator_tasks_total")
+	v1 := gatherCounter(t, m1, "overlord_tasks_total")
+	v2 := gatherCounter(t, m2, "overlord_tasks_total")
 
 	if v1 != 10 {
 		t.Fatalf("m1 expected 10, got %v", v1)

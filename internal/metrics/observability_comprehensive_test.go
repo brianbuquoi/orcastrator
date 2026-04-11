@@ -18,14 +18,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/agent"
-	"github.com/brianbuquoi/orcastrator/internal/api"
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
-	"github.com/brianbuquoi/orcastrator/internal/store/memory"
-	"github.com/brianbuquoi/orcastrator/internal/tracing"
+	"github.com/brianbuquoi/overlord/internal/agent"
+	"github.com/brianbuquoi/overlord/internal/api"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/store/memory"
+	"github.com/brianbuquoi/overlord/internal/tracing"
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -301,14 +301,14 @@ func TestMetricsEndpoint_ContentTypeAndFormat(t *testing.T) {
 
 	// All declared metric names must appear (even before any tasks).
 	wantMetrics := []string{
-		"orcastrator_tasks_total",
-		"orcastrator_task_duration_seconds",
-		"orcastrator_agent_request_duration_seconds",
-		"orcastrator_agent_tokens_total",
-		"orcastrator_task_retries_total",
-		"orcastrator_tasks_dead_lettered_total",
-		"orcastrator_sanitizer_redactions_total",
-		"orcastrator_queue_depth",
+		"overlord_tasks_total",
+		"overlord_task_duration_seconds",
+		"overlord_agent_request_duration_seconds",
+		"overlord_agent_tokens_total",
+		"overlord_task_retries_total",
+		"overlord_tasks_dead_lettered_total",
+		"overlord_sanitizer_redactions_total",
+		"overlord_queue_depth",
 	}
 
 	// Initialize all metrics with zero values so they appear in the gather.
@@ -389,17 +389,17 @@ func TestCounterAccuracy_5TasksThroughPipeline(t *testing.T) {
 		famMap[f.GetName()] = f
 	}
 
-	// orcastrator_tasks_total{final_state="DONE"} == 5
+	// overlord_tasks_total{final_state="DONE"} == 5
 	// Tasks complete at stage2 (the final stage), so look for stage2 labels.
-	doneCount := getCounterValue(famMap, "orcastrator_tasks_total", map[string]string{
+	doneCount := getCounterValue(famMap, "overlord_tasks_total", map[string]string{
 		"final_state": "DONE",
 	})
 	if doneCount != 5 {
 		t.Errorf("tasks_total{final_state=DONE} = %v, want 5", doneCount)
 	}
 
-	// orcastrator_tasks_total{final_state="FAILED"} == 0
-	failCount := getCounterValue(famMap, "orcastrator_tasks_total", map[string]string{
+	// overlord_tasks_total{final_state="FAILED"} == 0
+	failCount := getCounterValue(famMap, "overlord_tasks_total", map[string]string{
 		"final_state": "FAILED",
 	})
 	if failCount != 0 {
@@ -420,14 +420,14 @@ func TestCounterAccuracy_5TasksThroughPipeline(t *testing.T) {
 		famMap2[f.GetName()] = f
 	}
 
-	inputTokens := getCounterValue(famMap2, "orcastrator_agent_tokens_total", map[string]string{
+	inputTokens := getCounterValue(famMap2, "overlord_agent_tokens_total", map[string]string{
 		"direction": "input",
 	})
 	if inputTokens <= 0 {
 		t.Errorf("agent_tokens_total{direction=input} = %v, want > 0", inputTokens)
 	}
 
-	outputTokens := getCounterValue(famMap2, "orcastrator_agent_tokens_total", map[string]string{
+	outputTokens := getCounterValue(famMap2, "overlord_agent_tokens_total", map[string]string{
 		"direction": "output",
 	})
 	if outputTokens <= 0 {
@@ -472,7 +472,7 @@ func TestRetryCounter_FailTwiceThenSucceed(t *testing.T) {
 
 	waitForTaskState2(t, st, task.ID, broker.TaskStateDone, 10*time.Second)
 
-	retries := gatherCounter(t, m, "orcastrator_task_retries_total")
+	retries := gatherCounter(t, m, "overlord_task_retries_total")
 	if retries != 2 {
 		t.Errorf("task_retries_total = %v, want exactly 2", retries)
 	}
@@ -510,19 +510,19 @@ func TestDeadLetterCounter_ExhaustRetries(t *testing.T) {
 
 	waitForTaskState2(t, st, task.ID, broker.TaskStateFailed, 10*time.Second)
 
-	dlCount := gatherCounter(t, m, "orcastrator_tasks_dead_lettered_total")
+	dlCount := gatherCounter(t, m, "overlord_tasks_dead_lettered_total")
 	if dlCount != 1 {
 		t.Errorf("tasks_dead_lettered_total = %v, want 1", dlCount)
 	}
 
-	failCount := gatherCounter(t, m, "orcastrator_tasks_total")
+	failCount := gatherCounter(t, m, "overlord_tasks_total")
 	// Should have at least 1 FAILED entry.
 	families, _ := m.Registry.Gather()
 	famMap := make(map[string]*dto.MetricFamily, len(families))
 	for _, f := range families {
 		famMap[f.GetName()] = f
 	}
-	failedVal := getCounterValue(famMap, "orcastrator_tasks_total", map[string]string{
+	failedVal := getCounterValue(famMap, "overlord_tasks_total", map[string]string{
 		"final_state": "FAILED",
 	})
 	if failedVal != 1 {
@@ -571,7 +571,7 @@ func TestSanitizerRedactionCounter(t *testing.T) {
 		famMap[f.GetName()] = f
 	}
 
-	redactions := getCounterValue(famMap, "orcastrator_sanitizer_redactions_total", map[string]string{
+	redactions := getCounterValue(famMap, "overlord_sanitizer_redactions_total", map[string]string{
 		"pattern": "instruction_override",
 	})
 	if redactions < 1 {
@@ -618,7 +618,7 @@ func TestQueueDepthGauge(t *testing.T) {
 	for _, f := range families {
 		famMap[f.GetName()] = f
 	}
-	depth := getGaugeValue(famMap, "orcastrator_queue_depth", map[string]string{
+	depth := getGaugeValue(famMap, "overlord_queue_depth", map[string]string{
 		"pipeline_id": "test-pipeline",
 		"stage_id":    "stage1",
 	})
@@ -639,7 +639,7 @@ func TestQueueDepthGauge(t *testing.T) {
 	for _, f := range families2 {
 		famMap2[f.GetName()] = f
 	}
-	depthAfter := getGaugeValue(famMap2, "orcastrator_queue_depth", map[string]string{
+	depthAfter := getGaugeValue(famMap2, "overlord_queue_depth", map[string]string{
 		"pipeline_id": "test-pipeline",
 		"stage_id":    "stage1",
 	})
@@ -684,8 +684,8 @@ func TestRegistryIsolation_TwoBrokerInstances(t *testing.T) {
 		waitForTaskState2(t, st2, task.ID, broker.TaskStateDone, 5*time.Second)
 	}
 
-	v1 := gatherCounter(t, m1, "orcastrator_tasks_total")
-	v2 := gatherCounter(t, m2, "orcastrator_tasks_total")
+	v1 := gatherCounter(t, m1, "overlord_tasks_total")
+	v2 := gatherCounter(t, m2, "overlord_tasks_total")
 
 	if v1 != 3 {
 		t.Errorf("broker1 tasks_total = %v, want 3", v1)
@@ -715,7 +715,7 @@ func TestHistogramBucketCorrectness(t *testing.T) {
 
 	var histFam *dto.MetricFamily
 	for _, f := range families {
-		if f.GetName() == "orcastrator_agent_request_duration_seconds" {
+		if f.GetName() == "overlord_agent_request_duration_seconds" {
 			histFam = f
 			break
 		}
@@ -865,14 +865,14 @@ func TestTraceHierarchy_TaskStageAgent(t *testing.T) {
 	}
 
 	// Verify root span.
-	taskSpans := spansByName["orcastrator.task"]
+	taskSpans := spansByName["overlord.task"]
 	if len(taskSpans) != 1 {
 		t.Fatalf("expected 1 root task span, got %d", len(taskSpans))
 	}
 	rootSpanID := taskSpans[0].SpanContext.SpanID()
 
 	// Verify stage span is a child of task span.
-	stageSpans := spansByName["orcastrator.stage"]
+	stageSpans := spansByName["overlord.stage"]
 	if len(stageSpans) != 1 {
 		t.Fatalf("expected 1 stage span, got %d", len(stageSpans))
 	}
@@ -882,7 +882,7 @@ func TestTraceHierarchy_TaskStageAgent(t *testing.T) {
 	}
 
 	// Verify agent span is a child of stage span.
-	agentSpans := spansByName["orcastrator.agent.execute"]
+	agentSpans := spansByName["overlord.agent.execute"]
 	if len(agentSpans) != 1 {
 		t.Fatalf("expected 1 agent span, got %d", len(agentSpans))
 	}

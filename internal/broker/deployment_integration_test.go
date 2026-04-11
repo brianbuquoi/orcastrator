@@ -2,7 +2,7 @@
 
 package broker_test
 
-// Deployment integration tests for multi-instance Orcastrator.
+// Deployment integration tests for multi-instance Overlord.
 //
 // These tests validate correctness under concurrency, rolling restart behavior,
 // and known limitations of the multi-instance deployment model.
@@ -23,10 +23,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/api"
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/api"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
 )
 
 // ==========================================================================
@@ -677,7 +677,7 @@ func TestDeployment_RedeliveryAfterCrash(t *testing.T) {
 	}
 
 	// Document: there is no re-delivery timeout. The only mechanism is:
-	// 1. Manual SQL reset: UPDATE orcastrator_tasks SET state='PENDING' WHERE state IN ('ROUTING','EXECUTING') AND updated_at < now() - interval '5 minutes'
+	// 1. Manual SQL reset: UPDATE overlord_tasks SET state='PENDING' WHERE state IN ('ROUTING','EXECUTING') AND updated_at < now() - interval '5 minutes'
 	// 2. A future visibility timeout reaper (TODO in KNOWN_GAPS.md)
 	t.Log("Re-delivery timeout: NONE (no visibility timeout implemented)")
 }

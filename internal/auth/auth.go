@@ -1,4 +1,4 @@
-// Package auth provides API key authentication for the Orcastrator HTTP API.
+// Package auth provides API key authentication for the Overlord HTTP API.
 // Keys are loaded from environment variables, immediately hashed with bcrypt,
 // and the plaintext is zeroed in memory.
 package auth
@@ -13,7 +13,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/brianbuquoi/orcastrator/internal/config"
+	"github.com/brianbuquoi/overlord/internal/config"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -29,7 +29,7 @@ func SetCostForTesting(cost int) func() {
 	prev := bcryptCost
 	bcryptCost = cost
 	// Regenerate the dummy hash at the new cost so timing stays consistent.
-	h, _ := bcrypt.GenerateFromPassword([]byte("orcastrator-dummy-key-for-timing"), cost)
+	h, _ := bcrypt.GenerateFromPassword([]byte("overlord-dummy-key-for-timing"), cost)
 	oldDummy := dummyHash
 	dummyHash = h
 	return func() {
@@ -78,7 +78,7 @@ var dummyHash []byte
 
 func init() {
 	// Pre-compute a dummy hash at startup. Error is impossible for a fixed input.
-	h, _ := bcrypt.GenerateFromPassword([]byte("orcastrator-dummy-key-for-timing"), bcryptCost)
+	h, _ := bcrypt.GenerateFromPassword([]byte("overlord-dummy-key-for-timing"), bcryptCost)
 	dummyHash = h
 }
 

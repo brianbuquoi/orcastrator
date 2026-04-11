@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brianbuquoi/orcastrator/internal/config"
+	"github.com/brianbuquoi/overlord/internal/config"
 )
 
 func TestNewFromConfig_Anthropic(t *testing.T) {

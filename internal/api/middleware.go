@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/brianbuquoi/orcastrator/internal/auth"
+	"github.com/brianbuquoi/overlord/internal/auth"
 )
 
 const requestIDHeader = "X-Request-ID"
@@ -74,7 +74,7 @@ func securityHeaders(next http.Handler) http.Handler {
 // request would bypass per-IP rate limiting entirely. We always use RemoteAddr
 // which reflects the actual TCP connection source.
 //
-// If Orcastrator is deployed behind a trusted reverse proxy (nginx, ALB, etc.),
+// If Overlord is deployed behind a trusted reverse proxy (nginx, ALB, etc.),
 // the proxy should set a trusted header (e.g. X-Real-IP) and this function
 // should be updated to read that header only when the proxy is configured.
 func clientIP(r *http.Request) string {

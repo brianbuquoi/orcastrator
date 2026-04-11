@@ -9,8 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/brianbuquoi/orcastrator/internal/store"
-	pgstore "github.com/brianbuquoi/orcastrator/internal/store/postgres"
+	"github.com/brianbuquoi/overlord/internal/store"
+	pgstore "github.com/brianbuquoi/overlord/internal/store/postgres"
 )
 
 func TestPostgresStoreConformance(t *testing.T) {
@@ -27,7 +27,7 @@ func TestPostgresStoreConformance(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	// Create table if not exists.
-	_, err = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS orcastrator_tasks (
+	_, err = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS overlord_tasks (
 		id                    TEXT PRIMARY KEY,
 		pipeline_id           TEXT NOT NULL,
 		stage_id              TEXT NOT NULL,
@@ -49,10 +49,10 @@ func TestPostgresStoreConformance(t *testing.T) {
 	}
 
 	// Clean up before running tests.
-	_, _ = pool.Exec(ctx, "DELETE FROM orcastrator_tasks")
+	_, _ = pool.Exec(ctx, "DELETE FROM overlord_tasks")
 
 	RunConformanceTests(t, func() store.Store {
-		s, err := pgstore.New(pool, "orcastrator_tasks")
+		s, err := pgstore.New(pool, "overlord_tasks")
 		if err != nil {
 			t.Fatal(err)
 		}

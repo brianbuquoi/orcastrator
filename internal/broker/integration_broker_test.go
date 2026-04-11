@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/store/memory"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/store/memory"
 )
 
 // ── Scenario 4: Schema version upgrade path ──
@@ -709,7 +709,7 @@ func TestIntegrationConcurrentTasks(t *testing.T) {
 // ── pollTask exit code regression (Bug #1) ──
 
 func TestIntegrationPollTaskFailedExitCode(t *testing.T) {
-	// This tests the logic from cmd/orcastrator/main.go pollTask.
+	// This tests the logic from cmd/overlord/main.go pollTask.
 	// We verify the broker correctly marks a failed task with the right state.
 	dir := t.TempDir()
 

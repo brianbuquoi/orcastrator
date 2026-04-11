@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/store"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/store"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -27,7 +27,7 @@ type RedisStore struct {
 	taskTTL time.Duration
 }
 
-// New creates a RedisStore. prefix is prepended to all keys (e.g. "orcastrator:").
+// New creates a RedisStore. prefix is prepended to all keys (e.g. "overlord:").
 // taskTTL sets the EXPIRE on task keys; zero means no expiry.
 func New(client redis.Cmdable, prefix string, taskTTL time.Duration) *RedisStore {
 	return &RedisStore{

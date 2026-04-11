@@ -22,15 +22,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/brianbuquoi/orcastrator/internal/api"
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
-	"github.com/brianbuquoi/orcastrator/internal/migration"
-	"github.com/brianbuquoi/orcastrator/internal/sanitize"
-	"github.com/brianbuquoi/orcastrator/internal/store/memory"
-	"github.com/brianbuquoi/orcastrator/internal/tracing"
+	"github.com/brianbuquoi/overlord/internal/api"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/migration"
+	"github.com/brianbuquoi/overlord/internal/sanitize"
+	"github.com/brianbuquoi/overlord/internal/store/memory"
+	"github.com/brianbuquoi/overlord/internal/tracing"
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -245,7 +245,7 @@ func TestSEC2_SanitizerLabelContent(t *testing.T) {
 
 	// Verify that if sanitizer redactions exist, the pattern label is a known
 	// class name, not raw text.
-	if fam, ok := families["orcastrator_sanitizer_redactions_total"]; ok {
+	if fam, ok := families["overlord_sanitizer_redactions_total"]; ok {
 		validPatterns := map[string]bool{
 			"instruction_override":   true,
 			"role_hijack":            true,
@@ -1635,7 +1635,7 @@ func findRepoRoot(t *testing.T) string {
 		if parent == dir {
 			// Try common test locations.
 			for _, candidate := range []string{
-				"/home/minime/projects/claude/orcastrator",
+				"/home/minime/projects/claude/overlord",
 			} {
 				if _, err := os.Stat(filepath.Join(candidate, "go.mod")); err == nil {
 					return candidate

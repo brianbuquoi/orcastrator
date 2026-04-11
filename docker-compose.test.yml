@@ -18,7 +18,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: orcastrator_test
+      POSTGRES_DB: overlord_test
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:

@@ -35,7 +35,7 @@ jobs:
         run: govulncheck ./...
 
       - name: Build (linux/amd64)
-        run: GOOS=linux GOARCH=amd64 go build ./cmd/orcastrator
+        run: GOOS=linux GOARCH=amd64 go build ./cmd/overlord
 
       - name: Build (darwin/arm64)
-        run: GOOS=darwin GOARCH=arm64 go build ./cmd/orcastrator
+        run: GOOS=darwin GOARCH=arm64 go build ./cmd/overlord

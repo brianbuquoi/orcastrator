@@ -247,7 +247,7 @@ func TestAdversarial_CycleDetection(t *testing.T) {
 
 	path := writeTestConfig(t, minimalPipelineConfig(stages))
 	_, err := Load(path)
-	// TODO(orcastrator#0): Implement cycle detection in validatePipeline.
+	// TODO(overlord#0): Implement cycle detection in validatePipeline.
 	// Currently this loads successfully — cycles are not detected.
 	// When cycle detection is added, change this to expect an error.
 	if err != nil {
@@ -458,7 +458,7 @@ func TestAdversarial_WatchDebounce(t *testing.T) {
 	cfg := lastConfig
 	mu.Unlock()
 
-	// TODO(orcastrator#0): Implement debounce in Watch.
+	// TODO(overlord#0): Implement debounce in Watch.
 	// Current behavior: onChange fires for each write (count >= 1).
 	// Correct behavior: count == 1 with final state "write-3".
 	if count > 1 {

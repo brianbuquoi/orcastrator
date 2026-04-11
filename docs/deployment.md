@@ -1,13 +1,13 @@
-# Orcastrator Deployment Guide
+# Overlord Deployment Guide
 
 ## Deployment Models
 
-Orcastrator supports two deployment models: single-instance and
+Overlord supports two deployment models: single-instance and
 multi-instance. Choose based on your throughput and availability requirements.
 
 ### Single-Instance
 
-The simplest deployment. One Orcastrator process handles all pipeline stages.
+The simplest deployment. One Overlord process handles all pipeline stages.
 Suitable for development, low-throughput production, and environments where
 downtime during deploys is acceptable.
 
@@ -31,12 +31,12 @@ pipelines:
 Run:
 
 ```bash
-orcastrator run --config config.yaml
+overlord run --config config.yaml
 ```
 
 ### Multi-Instance
 
-Multiple Orcastrator processes share a single Postgres database. Each
+Multiple Overlord processes share a single Postgres database. Each
 instance runs identical config and processes tasks from all stages. There is
 no leader election — any instance can dequeue any task from any stage.
 
@@ -65,14 +65,14 @@ pipelines:
 stores:
   postgres:
     dsn_env: DATABASE_URL
-    table: orcastrator_tasks
+    table: overlord_tasks
 ```
 
 Run on each host:
 
 ```bash
 # All instances use the same config and DATABASE_URL
-orcastrator run --config config.yaml
+overlord run --config config.yaml
 ```
 
 ## Multi-Instance Configuration
@@ -82,7 +82,7 @@ orcastrator run --config config.yaml
 Create the tasks table before starting any instances. Apply the SQL manually:
 
 ```sql
-CREATE TABLE IF NOT EXISTS orcastrator_tasks (
+CREATE TABLE IF NOT EXISTS overlord_tasks (
     id                    TEXT PRIMARY KEY,
     pipeline_id           TEXT NOT NULL,
     stage_id              TEXT NOT NULL,
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS orcastrator_tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_stage_state_created
-    ON orcastrator_tasks (stage_id, state, created_at);
+    ON overlord_tasks (stage_id, state, created_at);
 ```
 
 The `(stage_id, state, created_at)` index is critical for dequeue
@@ -202,25 +202,25 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: orcastrator
-      POSTGRES_USER: orcastrator
+      POSTGRES_DB: overlord
+      POSTGRES_USER: overlord
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U orcastrator"]
+      test: ["CMD-SHELL", "pg_isready -U overlord"]
       interval: 5s
       timeout: 3s
       retries: 5
 
   migrate:
     image: postgres:16-alpine
-    entrypoint: ["psql", "-h", "postgres", "-U", "orcastrator", "-d", "orcastrator", "-c"]
+    entrypoint: ["psql", "-h", "postgres", "-U", "overlord", "-d", "overlord", "-c"]
     command:
       - |
-        CREATE TABLE IF NOT EXISTS orcastrator_tasks (
+        CREATE TABLE IF NOT EXISTS overlord_tasks (
             id                    TEXT PRIMARY KEY,
             pipeline_id           TEXT NOT NULL,
             stage_id              TEXT NOT NULL,
@@ -238,44 +238,44 @@ services:
             expires_at            TIMESTAMPTZ
         );
         CREATE INDEX IF NOT EXISTS idx_tasks_stage_state_created
-            ON orcastrator_tasks (stage_id, state, created_at);
+            ON overlord_tasks (stage_id, state, created_at);
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
 
-  orcastrator-1:
-    image: orcastrator:latest
-    command: run --config /etc/orcastrator/config.yaml
+  overlord-1:
+    image: overlord:latest
+    command: run --config /etc/overlord/config.yaml
     environment:
       # sslmode=disable is safe here because postgres is on the same Docker
       # network. For production across networks, use sslmode=require or
       # sslmode=verify-full.
-      DATABASE_URL: postgres://orcastrator:${POSTGRES_PASSWORD}@postgres:5432/orcastrator?sslmode=disable
+      DATABASE_URL: postgres://overlord:${POSTGRES_PASSWORD}@postgres:5432/overlord?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      ORCASTRATOR_PORT: "8080"
+      OVERLORD_PORT: "8080"
     volumes:
-      - ./config.yaml:/etc/orcastrator/config.yaml:ro
-      - ./schemas:/etc/orcastrator/schemas:ro
+      - ./config.yaml:/etc/overlord/config.yaml:ro
+      - ./schemas:/etc/overlord/schemas:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  orcastrator-2:
-    image: orcastrator:latest
-    command: run --config /etc/orcastrator/config.yaml
+  overlord-2:
+    image: overlord:latest
+    command: run --config /etc/overlord/config.yaml
     environment:
-      # sslmode=disable is safe here — same Docker network. See orcastrator-1 comment.
-      DATABASE_URL: postgres://orcastrator:${POSTGRES_PASSWORD}@postgres:5432/orcastrator?sslmode=disable
+      # sslmode=disable is safe here — same Docker network. See overlord-1 comment.
+      DATABASE_URL: postgres://overlord:${POSTGRES_PASSWORD}@postgres:5432/overlord?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      ORCASTRATOR_PORT: "8080"
+      OVERLORD_PORT: "8080"
     volumes:
-      - ./config.yaml:/etc/orcastrator/config.yaml:ro
-      - ./schemas:/etc/orcastrator/schemas:ro
+      - ./config.yaml:/etc/overlord/config.yaml:ro
+      - ./schemas:/etc/overlord/schemas:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -290,8 +290,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
     depends_on:
-      - orcastrator-1
-      - orcastrator-2
+      - overlord-1
+      - overlord-2
 
 volumes:
   pgdata:
@@ -302,7 +302,7 @@ volumes:
 
 ```
 :80 {
-    reverse_proxy orcastrator-1:8080 orcastrator-2:8080 {
+    reverse_proxy overlord-1:8080 overlord-2:8080 {
         lb_policy round_robin
         health_uri /v1/health
         health_interval 10s
@@ -322,10 +322,10 @@ auth:
   enabled: true
   keys:
     - name: ci-pipeline
-      key_env: ORCASTRATOR_CI_KEY
+      key_env: OVERLORD_CI_KEY
       scopes: [write]
     - name: monitoring
-      key_env: ORCASTRATOR_MON_KEY
+      key_env: OVERLORD_MON_KEY
       scopes: [read]
 ```
 
@@ -356,17 +356,17 @@ Write scope implies read. Admin scope implies all.
 
 ### CLI usage
 
-Pass the API key via the `--api-key` flag or the `ORCASTRATOR_API_KEY`
+Pass the API key via the `--api-key` flag or the `OVERLORD_API_KEY`
 environment variable:
 
 ```bash
 # Environment variable (recommended)
-ORCASTRATOR_API_KEY=your-key-here orcastrator submit \
+OVERLORD_API_KEY=your-key-here overlord submit \
   --config config.yaml --pipeline hello \
   --payload '{"request": "Say hello"}'
 
 # Flag
-orcastrator submit --api-key your-key-here \
+overlord submit --api-key your-key-here \
   --config config.yaml --pipeline hello \
   --payload '{"request": "Say hello"}'
 ```
@@ -401,7 +401,7 @@ infrastructure.
     @metrics path /metrics
     respond @metrics 403
 
-    reverse_proxy orcastrator-1:8080 orcastrator-2:8080 {
+    reverse_proxy overlord-1:8080 overlord-2:8080 {
         lb_policy round_robin
         health_uri /v1/health
         health_interval 10s
@@ -410,7 +410,7 @@ infrastructure.
 
 # Internal-only metrics endpoint for Prometheus
 :9090 {
-    reverse_proxy /metrics orcastrator-1:8080 orcastrator-2:8080
+    reverse_proxy /metrics overlord-1:8080 overlord-2:8080
 }
 ```
 
@@ -421,7 +421,7 @@ location /metrics {
     # Allow internal Prometheus scraper
     allow 10.0.0.0/8;
     deny all;
-    proxy_pass http://orcastrator;
+    proxy_pass http://overlord;
 }
 ```
 
@@ -437,7 +437,7 @@ functioning correctly:
 ```bash
 for i in 1 2 3 4 5 6 7 8; do
   echo "=== VECTOR $i ==="
-  orcastrator submit \
+  overlord submit \
     --config config/examples/05-injection-stress-test.yaml \
     --pipeline injection-stress-test \
     --payload test-inputs/05-vector-$i.json \
@@ -470,7 +470,7 @@ docker-compose example is only safe on the Docker bridge network.
 | `GEMINI_API_KEY` | If using Google agents | — | Google Gemini API key |
 | `OPENAI_API_KEY` | If using OpenAI agents | — | OpenAI API key |
 | `OLLAMA_ENDPOINT` | If using Ollama agents | `http://localhost:11434` | Ollama REST API endpoint |
-| `ORCASTRATOR_PORT` | No | `8080` | HTTP API listen port |
+| `OVERLORD_PORT` | No | `8080` | HTTP API listen port |
 | `LOG_LEVEL` | No | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `ANTHROPIC_BASE_URL` | No | `https://api.anthropic.com` | Override Anthropic API endpoint (testing/proxying) |
 
@@ -480,9 +480,9 @@ docker-compose example is only safe on the Docker bridge network.
 
 - [ ] Choose store backend (`memory`, `redis`, or `postgres`)
 - [ ] Set required environment variables for your agents
-- [ ] Run `orcastrator validate --config config.yaml` to verify config
+- [ ] Run `overlord validate --config config.yaml` to verify config
 - [ ] Apply the tasks table SQL if using Postgres
-- [ ] Start with `orcastrator run --config config.yaml`
+- [ ] Start with `overlord run --config config.yaml`
 
 ### Multi-Instance
 

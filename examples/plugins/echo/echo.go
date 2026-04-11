@@ -1,4 +1,4 @@
-// Package main implements an echo plugin for Orcastrator. It returns
+// Package main implements an echo plugin for Overlord. It returns
 // its input payload as output, useful for testing and as a template
 // for plugin authors.
 //
@@ -10,10 +10,10 @@ package main
 import (
 	"context"
 
-	"github.com/brianbuquoi/orcastrator/pkg/plugin"
+	"github.com/brianbuquoi/overlord/pkg/plugin"
 )
 
-// Plugin is the exported symbol that Orcastrator looks up when loading
+// Plugin is the exported symbol that Overlord looks up when loading
 // a plugin .so file. It must satisfy the plugin.AgentPlugin interface.
 var Plugin plugin.AgentPlugin = &echoPlugin{}
 

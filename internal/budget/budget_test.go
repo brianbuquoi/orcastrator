@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/budget"
+	"github.com/brianbuquoi/overlord/internal/budget"
 )
 
 func TestTracker_IncrementAndCurrent(t *testing.T) {

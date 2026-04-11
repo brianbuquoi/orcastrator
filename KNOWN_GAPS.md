@@ -1,4 +1,4 @@
-# Orcastrator — Known Gaps & Deferred Issues
+# Overlord — Known Gaps & Deferred Issues
 
 These items were identified during integration testing and security audits.
 Each entry includes the severity, location, and recommended fix approach.
@@ -83,7 +83,7 @@ an audit trail without changing the redaction behavior.
 **Location:** `internal/sanitize/` (architectural concern)
 **Detail:** For 6 of 8 tested injection vector classes, the pipeline's
 security relies on the LLM provider's model alignment rather than
-Orcastrator's sanitizer. This means that upgrading to a new model version
+Overlord's sanitizer. This means that upgrading to a new model version
 (e.g. from claude-sonnet-4-20250514 to a future version) could change the
 security posture without any code changes. A model with weaker instruction-
 following discipline or different alignment training could be vulnerable to
@@ -118,7 +118,7 @@ in production but leaks in tests.
 **Recommendation:** Accept a context parameter and stop on cancellation.
 
 ### SEC2-003: cancel command TOCTOU race
-**Location:** `cmd/orcastrator/main.go` — `cancelTask()`
+**Location:** `cmd/overlord/main.go` — `cancelTask()`
 **Severity:** Medium
 **Description:** `cancelTask()` performs a read-then-write. Between GetTask and
 UpdateTask, the broker can complete the task, and cancel will overwrite the DONE state.
@@ -126,7 +126,7 @@ UpdateTask, the broker can complete the task, and cancel will overwrite the DONE
 `UPDATE WHERE state NOT IN ('DONE', 'FAILED')`.
 
 ### SEC2-005: Migration lacks concurrency protection against live broker
-**Location:** `cmd/orcastrator/main.go` — `runMigration()`
+**Location:** `cmd/overlord/main.go` — `runMigration()`
 **Severity:** Medium
 **Description:** `migrate run` against a live pipeline with in-flight tasks can cause a
 task to be processed with a pre-migration payload while migration writes the post-migration
@@ -241,7 +241,7 @@ design.
 multi-tenant requirements arise.
 
 ### SEC4-015: Database connection error may leak credentials
-**Location:** `cmd/orcastrator/main.go`
+**Location:** `cmd/overlord/main.go`
 **Description:** Connection failures use `%w` wrapping of driver errors. If pgx
 or go-redis include the DSN in error messages, credentials could appear in logs.
 **Status:** Accepted — driver-dependent; monitor if DSN leakage is observed.

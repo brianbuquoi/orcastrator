@@ -1,5 +1,5 @@
 // Package sanitize implements prompt injection detection and the envelope
-// pattern for safe inter-agent communication in Orcastrator pipelines.
+// pattern for safe inter-agent communication in Overlord pipelines.
 package sanitize
 
 import (

@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS orcastrator_tasks (
+CREATE TABLE IF NOT EXISTS overlord_tasks (
     id                    TEXT PRIMARY KEY,
     pipeline_id           TEXT NOT NULL,
     stage_id              TEXT NOT NULL,
@@ -17,4 +17,4 @@ CREATE TABLE IF NOT EXISTS orcastrator_tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_stage_state_created
-    ON orcastrator_tasks (stage_id, state, created_at);
+    ON overlord_tasks (stage_id, state, created_at);

@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in Orcastrator
+about: Report a bug in Overlord
 labels: bug
 ---
 
@@ -10,8 +10,8 @@ labels: bug
 **OS:**
 <!-- e.g. Ubuntu 24.04, macOS 15.1 -->
 
-**Orcastrator version:**
-<!-- Output of `orcastrator --version` or git commit SHA -->
+**Overlord version:**
+<!-- Output of `overlord --version` or git commit SHA -->
 
 **Config (redacted):**
 <!-- Paste your pipeline YAML with API keys and sensitive data removed -->

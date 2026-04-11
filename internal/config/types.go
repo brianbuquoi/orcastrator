@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/routing"
+	"github.com/brianbuquoi/overlord/internal/routing"
 )
 
 // Config is the top-level configuration, mapping 1:1 to the YAML file.

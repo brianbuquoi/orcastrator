@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/agent"
-	"github.com/brianbuquoi/orcastrator/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/agent"
+	"github.com/brianbuquoi/overlord/internal/broker"
 )
 
 func newTestAdapter(t *testing.T, serverURL string) *Adapter {
@@ -567,7 +567,7 @@ func TestExecute_ToolUseOnly(t *testing.T) {
 	ae := mustAgentError(t, err)
 
 	if ae.Retryable {
-		t.Error("tool_use-only response must be non-retryable (Orcastrator doesn't support tool calls)")
+		t.Error("tool_use-only response must be non-retryable (Overlord doesn't support tool calls)")
 	}
 }
 

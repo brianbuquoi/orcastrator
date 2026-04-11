@@ -6,7 +6,7 @@
 # Build output
 /bin/
 /dist/
-/orcastrator
+/overlord
 
 # Test artifacts
 coverage.out

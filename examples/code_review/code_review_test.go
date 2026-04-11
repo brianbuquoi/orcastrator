@@ -15,12 +15,12 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/brianbuquoi/orcastrator/internal/agent"
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
-	"github.com/brianbuquoi/orcastrator/internal/store/memory"
+	"github.com/brianbuquoi/overlord/internal/agent"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/store/memory"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -795,7 +795,7 @@ func TestMockedEndToEnd_RetryBehavior(t *testing.T) {
 		t.Fatalf("write metric: %v", err)
 	}
 	if got := metric.GetCounter().GetValue(); got != 2 {
-		t.Errorf("expected orcastrator_task_retries_total=2 for review stage, got %v", got)
+		t.Errorf("expected overlord_task_retries_total=2 for review stage, got %v", got)
 	}
 }
 

@@ -3,7 +3,7 @@
 //
 //	var Plugin plugin.AgentPlugin
 //
-// Plugins are loaded with the full trust of the Orcastrator process.
+// Plugins are loaded with the full trust of the Overlord process.
 package plugin
 
 import (
@@ -17,9 +17,9 @@ import (
 
 	goplugin "plugin"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	pluginapi "github.com/brianbuquoi/orcastrator/pkg/plugin"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	pluginapi "github.com/brianbuquoi/overlord/pkg/plugin"
 )
 
 // validID matches safe identifiers — same regex as config.validateID.

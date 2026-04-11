@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brianbuquoi/orcastrator/internal/auth"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/auth"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/metrics"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -375,7 +375,7 @@ func TestSEC3_FanOutMetricsLabels(t *testing.T) {
 	}
 
 	for _, mf := range mfs {
-		if mf.GetName() == "orcastrator_fanout_agent_results_total" {
+		if mf.GetName() == "overlord_fanout_agent_results_total" {
 			for _, metric := range mf.GetMetric() {
 				for _, lp := range metric.GetLabel() {
 					if lp.GetName() == "result" {

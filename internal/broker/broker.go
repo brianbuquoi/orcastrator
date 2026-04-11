@@ -14,13 +14,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/brianbuquoi/orcastrator/internal/budget"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/metrics"
-	"github.com/brianbuquoi/orcastrator/internal/routing"
-	"github.com/brianbuquoi/orcastrator/internal/sanitize"
-	"github.com/brianbuquoi/orcastrator/internal/tracing"
+	"github.com/brianbuquoi/overlord/internal/budget"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/metrics"
+	"github.com/brianbuquoi/overlord/internal/routing"
+	"github.com/brianbuquoi/overlord/internal/sanitize"
+	"github.com/brianbuquoi/overlord/internal/tracing"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -72,7 +72,7 @@ type stageWorkerHandle struct {
 	count      int                // number of worker goroutines
 }
 
-// Broker is the central routing engine for Orcastrator pipelines.
+// Broker is the central routing engine for Overlord pipelines.
 type Broker struct {
 	cfg       *config.Config
 	store     Store

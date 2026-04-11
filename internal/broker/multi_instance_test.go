@@ -23,11 +23,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/brianbuquoi/orcastrator/internal/broker"
-	"github.com/brianbuquoi/orcastrator/internal/config"
-	"github.com/brianbuquoi/orcastrator/internal/contract"
-	"github.com/brianbuquoi/orcastrator/internal/store"
-	pgstore "github.com/brianbuquoi/orcastrator/internal/store/postgres"
+	"github.com/brianbuquoi/overlord/internal/broker"
+	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/store"
+	pgstore "github.com/brianbuquoi/overlord/internal/store/postgres"
 )
 
 // setupMultiInstanceEnv creates a Postgres table, schemas, config, and mock
@@ -55,7 +55,7 @@ func setupMultiInstanceEnv(t *testing.T) (
 
 	// Unique table per test run to avoid interference.
 	tableSuffix := uuid.New().String()[:8]
-	safeTable := "orcastrator_multi_"
+	safeTable := "overlord_multi_"
 	for _, c := range tableSuffix {
 		if c == '-' {
 			safeTable += "_"

@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-04-11
+
+### Changed
+- Project renamed from Orcastrator to Overlord
+- Go module path changed from `github.com/brianbuquoi/orcastrator`
+  to `github.com/brianbuquoi/overlord`
+- CLI binary renamed from `orcastrator` to `overlord`
+- Environment variable prefix changed from `ORCASTRATOR_` to `OVERLORD_`
+
+### Breaking Changes
+- Redis key prefix changed from `orcastrator:` to `overlord:`
+  Existing Redis deployments must flush keys or migrate data.
+- Postgres table renamed from `orcastrator_tasks` to `overlord_tasks`
+  Run migrations/002_rename_table.sql to migrate existing data.
+- Environment variables renamed: `ORCASTRATOR_PORT` → `OVERLORD_PORT`,
+  `ORCASTRATOR_API_KEY` → `OVERLORD_API_KEY`
+
+### Migration
+For existing deployments upgrading from v0.2.x:
+1. Stop all Orcastrator instances
+2. Run migrations/002_rename_table.sql against your Postgres database
+3. Flush or migrate Redis keys (see docs/migration.md)
+4. Update environment variable names in your deployment config
+5. Update any scripts using the `orcastrator` binary to use `overlord`
+
 ## [0.2.0] - 2026-04-09
 
 ### Added
@@ -14,8 +39,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Brute force protection with per-IP failure tracking and sliding
   window cleanup
 - Aggregate schema validation for fan-out stage outputs
-- `orcastrator_fanout_agent_results_total` and
-  `orcastrator_fanout_require_policy_failures_total` metrics
+- `overlord_fanout_agent_results_total` and
+  `overlord_fanout_require_policy_failures_total` metrics
 - 72-byte API key length validation with clear startup error
 
 ### Security
@@ -48,8 +73,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.2.2] - 2026-04-11
 
 ### Fixed
-- Correct Go module path from `github.com/orcastrator/orcastrator` to
-  `github.com/brianbuquoi/orcastrator` — `go install` was failing with
+- Correct Go module path from `github.com/overlord/overlord` to
+  `github.com/brianbuquoi/overlord` — `go install` was failing with
   a module path conflict
 - All LLM adapters (Anthropic, OpenAI, Gemini, Ollama) now parse model
   response text as JSON before setting TaskResult.Output. Previously
@@ -72,7 +97,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Conditional routing: route tasks to different stages based on field
   values in agent output, supporting ==, !=, >, >=, <, <=, and contains
   operators
-- Pipeline dashboard: single-page web UI served by Orcastrator showing
+- Pipeline dashboard: single-page web UI served by Overlord showing
   live pipeline topology, per-stage queue depths, task event feed, and
   agent health status
 - Retry budgets: pipeline-level and agent-level caps on total retry
@@ -80,7 +105,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Dead letter queue management: inspect, replay, and discard
   dead-lettered tasks via CLI and API
 - Plugin system: load custom LLM provider adapters as Go shared
-  libraries without forking Orcastrator
+  libraries without forking Overlord
 - Cycle detection in pipeline config validation — circular routing
   references are now rejected at startup
 - Runtime max_stage_transitions safeguard (default: 50) as

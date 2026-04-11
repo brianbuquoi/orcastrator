@@ -1,6 +1,6 @@
-# Orcastrator
+# Overlord
 
-Orcastrator is a YAML-driven orchestration engine for AI agent pipelines.
+Overlord is a YAML-driven orchestration engine for AI agent pipelines.
 Define multi-stage workflows that route tasks through LLM providers
 (Anthropic, OpenAI, Google Gemini, Ollama) with typed I/O contracts,
 automatic prompt injection sanitization, and schema versioning — all
@@ -44,7 +44,7 @@ Tasks follow the lifecycle: `PENDING -> ROUTING -> EXECUTING -> VALIDATING -> DO
 Install:
 
 ```bash
-go install github.com/brianbuquoi/orcastrator/cmd/orcastrator@latest
+go install github.com/brianbuquoi/overlord/cmd/overlord@latest
 ```
 
 Create `pipeline.yaml`:
@@ -100,13 +100,13 @@ Run:
 export ANTHROPIC_API_KEY=your-key-here
 
 # Validate config
-orcastrator validate --config pipeline.yaml
+overlord validate --config pipeline.yaml
 
 # Start the engine
-orcastrator run --config pipeline.yaml
+overlord run --config pipeline.yaml
 
 # In another terminal — submit a task
-orcastrator submit --config pipeline.yaml --pipeline hello \
+overlord submit --config pipeline.yaml --pipeline hello \
   --payload '{"request": "Say hello"}'
 ```
 
@@ -175,13 +175,13 @@ auth:
   enabled: true
   keys:
     - name: ci-pipeline
-      key_env: ORCASTRATOR_CI_KEY     # env var holding the plaintext key
+      key_env: OVERLORD_CI_KEY     # env var holding the plaintext key
       scopes: [write]
     - name: monitoring
-      key_env: ORCASTRATOR_MON_KEY
+      key_env: OVERLORD_MON_KEY
       scopes: [read]
     - name: operator
-      key_env: ORCASTRATOR_ADMIN_KEY
+      key_env: OVERLORD_ADMIN_KEY
       scopes: [admin]
 ```
 
@@ -226,7 +226,7 @@ unconditional — conditions apply to `on_success` only.
 
 ### Pipeline dashboard
 
-Orcastrator serves a built-in web dashboard at `/dashboard`. No
+Overlord serves a built-in web dashboard at `/dashboard`. No
 separate build step or frontend tooling required — the dashboard
 is embedded in the binary.
 
@@ -282,17 +282,17 @@ Inspect, replay, and discard dead-lettered tasks via the CLI and API.
 
 ```bash
 # List dead-lettered tasks
-orcastrator dead-letter list --config pipeline.yaml
+overlord dead-letter list --config pipeline.yaml
 
 # Replay a single task (re-enqueues with fresh attempt count)
-orcastrator dead-letter replay --config pipeline.yaml --task <id>
+overlord dead-letter replay --config pipeline.yaml --task <id>
 
 # Replay all dead-lettered tasks for a pipeline
-orcastrator dead-letter replay-all --config pipeline.yaml --pipeline <id>
+overlord dead-letter replay-all --config pipeline.yaml --pipeline <id>
 
 # Discard (permanently marks as DISCARDED, keeps record for audit)
-orcastrator dead-letter discard --config pipeline.yaml --task <id>
-orcastrator dead-letter discard-all --config pipeline.yaml --pipeline <id>
+overlord dead-letter discard --config pipeline.yaml --task <id>
+overlord dead-letter discard-all --config pipeline.yaml --pipeline <id>
 ```
 
 Replay creates a new task with the original payload and a fresh
@@ -306,9 +306,9 @@ Bulk operations require `admin` scope.
 
 ### Plugin system
 
-Add custom LLM provider adapters without forking Orcastrator. Plugins
+Add custom LLM provider adapters without forking Overlord. Plugins
 are Go shared libraries (`.so` files) that export a single `Plugin`
-symbol implementing the `orcastrator.AgentPlugin` interface.
+symbol implementing the `overlord.AgentPlugin` interface.
 
 ```yaml
 plugins:
@@ -326,11 +326,11 @@ agents:
       custom_option: value  # passed to PluginAgentConfig.Extra
 ```
 
-Plugins run in the same process with the same privileges as Orcastrator.
+Plugins run in the same process with the same privileges as Overlord.
 Only load plugins from trusted sources. See [SECURITY.md](SECURITY.md)
 for the plugin trust model.
 
-Plugin development: implement `orcastrator.AgentPlugin` from
+Plugin development: implement `overlord.AgentPlugin` from
 `pkg/plugin/`, compile with `go build -buildmode=plugin`, and drop
 the `.so` in the plugins directory. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for full instructions.
@@ -348,7 +348,7 @@ Note: Go's plugin package requires Linux or macOS with CGO enabled.
 | GitHub Copilot | — | — | Stub (waiting for public API) |
 
 > Custom providers can be added via the plugin system without forking
-> Orcastrator. See [Plugin system](#plugin-system) above.
+> Overlord. See [Plugin system](#plugin-system) above.
 
 ## Deployment
 
