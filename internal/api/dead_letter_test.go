@@ -974,6 +974,18 @@ func TestReplayAll_SubmitAndRollbackFail(t *testing.T) {
 	if !strings.Contains(logs, `"task_id":"`+ids[0]+`"`) {
 		t.Errorf("expected task_id %q in log, got: %s", ids[0], logs)
 	}
+
+	// Task is stranded — operator must use POST /v1/tasks/{id}/recover to restore.
+	tk, err := mem.GetTask(context.Background(), ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tk.State != broker.TaskStateReplayPending {
+		t.Errorf("state after double-failure: got %s want REPLAY_PENDING", tk.State)
+	}
+	if tk.RoutedToDeadLetter {
+		t.Errorf("RoutedToDeadLetter after double-failure: got true want false")
+	}
 }
 
 // TestReplayDeadLetter_SubmitFails verifies single-task replay rolls back to
@@ -1072,6 +1084,18 @@ func TestReplayDeadLetter_SubmitAndRollbackFail(t *testing.T) {
 	}
 	if !strings.Contains(logs, `"task_id":"`+taskID+`"`) {
 		t.Errorf("expected task_id in log, got: %s", logs)
+	}
+
+	// Task is stranded — operator must use POST /v1/tasks/{id}/recover to restore.
+	tk, err := mem.GetTask(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tk.State != broker.TaskStateReplayPending {
+		t.Errorf("state after double-failure: got %s want REPLAY_PENDING", tk.State)
+	}
+	if tk.RoutedToDeadLetter {
+		t.Errorf("RoutedToDeadLetter after double-failure: got true want false")
 	}
 }
 

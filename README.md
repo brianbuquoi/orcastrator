@@ -37,7 +37,24 @@ require policies (all/any/majority).
                           DONE
 ```
 
-Tasks follow the lifecycle: `PENDING -> ROUTING -> EXECUTING -> VALIDATING -> DONE | FAILED | RETRYING`.
+Tasks follow the lifecycle:
+
+```
+PENDING → ROUTING → EXECUTING → VALIDATING → (DONE | FAILED | RETRYING)
+
+Dead-letter replay flow:
+FAILED (dead-lettered) → REPLAY_PENDING → REPLAYED (original task, terminal)
+                                        ↘ FAILED (dead-lettered, if rollback occurs)
+                      → (new task) PENDING → ... → DONE
+```
+
+- `REPLAY_PENDING`: transitional state set atomically when a dead-lettered
+  task is claimed for replay. Indicates the replay submission is in progress.
+  A task stuck in this state indicates a double-failure (both the replay
+  submit and its rollback failed) — use `POST /v1/tasks/{id}/recover` or
+  `orcastrator recover <id>` to restore it to dead-letter status.
+- `REPLAYED`: terminal audit state. The original task ended here after a
+  successful replay submission; the new task carries the retry.
 
 ## Quick start
 
@@ -295,10 +312,28 @@ overlord dead-letter discard --config pipeline.yaml --task <id>
 overlord dead-letter discard-all --config pipeline.yaml --pipeline <id>
 ```
 
-Replay creates a new task with the original payload and a fresh
-attempt count — the original dead-lettered task is preserved.
-Discarded tasks are excluded from `GET /v1/tasks` by default
-(`?include_discarded=true` to include them).
+Replay creates a new task with the original payload and a fresh attempt
+count. The original dead-lettered task is atomically claimed
+(`REPLAY_PENDING`), then marked `REPLAYED` (terminal audit state) on
+successful submission; on submit failure it is rolled back to FAILED +
+dead-lettered. Discarded tasks are excluded from `GET /v1/tasks` by
+default (`?include_discarded=true` to include them).
+
+Behavior:
+
+- **Single replay** (`POST /v1/dead-letter/{id}/replay`) atomically claims
+  the original task (→ `REPLAY_PENDING`), submits a new task, marks the
+  original `REPLAYED` on success, or rolls back to FAILED+dead-lettered on
+  submit failure.
+- **replay-all** (`POST /v1/dead-letter/replay-all`) has the same per-task
+  semantics, paginated, bounded at 100,000 tasks per call. Returns
+  `processed`, `failed`, and `truncated` counts.
+- **discard-all** (`POST /v1/dead-letter/discard-all`) discards all
+  matching dead-lettered tasks, paginated, bounded at 100,000 tasks per
+  call.
+- **Recovery** for stranded `REPLAY_PENDING` tasks (double-failure):
+  `POST /v1/tasks/{id}/recover` (write scope) or
+  `orcastrator recover <id>`.
 
 API endpoints: `GET /v1/dead-letter`, `POST /v1/dead-letter/{id}/replay`,
 `POST /v1/dead-letter/{id}/discard`, and bulk variants.

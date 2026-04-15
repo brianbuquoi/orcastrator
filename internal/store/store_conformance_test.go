@@ -502,6 +502,74 @@ func RunConformanceTests(t *testing.T, factory func() store.Store) {
 		}
 	})
 
+	t.Run("ReplayPendingToReplayed", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		task := seedDeadLettered(t, s, "stage-replayed-"+uuid.New().String())
+
+		if _, err := s.ClaimForReplay(ctx, task.ID); err != nil {
+			t.Fatalf("claim: %v", err)
+		}
+		replayed := broker.TaskStateReplayed
+		if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &replayed}); err != nil {
+			t.Fatalf("set REPLAYED: %v", err)
+		}
+
+		got, err := s.GetTask(ctx, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != broker.TaskStateReplayed {
+			t.Errorf("state: got %s, want REPLAYED", got.State)
+		}
+
+		_, err = s.ClaimForReplay(ctx, task.ID)
+		if err != store.ErrTaskNotReplayable {
+			t.Errorf("claim on REPLAYED: got %v, want ErrTaskNotReplayable", err)
+		}
+
+		dl := true
+		result, err := s.ListTasks(ctx, broker.TaskFilter{RoutedToDeadLetter: &dl})
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, tk := range result.Tasks {
+			if tk.ID == task.ID {
+				t.Errorf("REPLAYED task %s should not appear in dead-letter listing", task.ID)
+			}
+		}
+	})
+
+	t.Run("RollbackReplayClaim_Idempotency", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		task := seedDeadLettered(t, s, "stage-rollback-idem-"+uuid.New().String())
+
+		if _, err := s.ClaimForReplay(ctx, task.ID); err != nil {
+			t.Fatalf("claim: %v", err)
+		}
+		if err := s.RollbackReplayClaim(ctx, task.ID); err != nil {
+			t.Fatalf("first rollback: %v", err)
+		}
+		// Second rollback: task is FAILED+DL, not REPLAY_PENDING.
+		err := s.RollbackReplayClaim(ctx, task.ID)
+		if err != store.ErrTaskNotReplayPending {
+			t.Errorf("second rollback: got %v, want ErrTaskNotReplayPending", err)
+		}
+		got, err := s.GetTask(ctx, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != broker.TaskStateFailed {
+			t.Errorf("state: got %s, want FAILED", got.State)
+		}
+		if !got.RoutedToDeadLetter {
+			t.Error("RoutedToDeadLetter: got false, want true")
+		}
+	})
+
 	t.Run("ExpiredTasksNotReturned", func(t *testing.T) {
 		t.Parallel()
 		s := factory()
