@@ -104,12 +104,6 @@ const maxRequestBodySize = 1 << 20
 // maxListLimit is the maximum allowed limit for ListTasks queries.
 const maxListLimit = 1000
 
-// maxBulkOperationTasks bounds replay-all and discard-all per-call so a
-// runaway operation cannot walk an unbounded dead-letter backlog. Callers
-// that hit the ceiling receive `"truncated": true` in the response and can
-// reissue the call to drain the remainder.
-const maxBulkOperationTasks = 100000
-
 func (s *Server) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 	pipelineID := pathParam(r.URL.Path, "/v1/pipelines/", "/tasks")
 	if pipelineID == "" {
@@ -493,105 +487,17 @@ func (s *Server) handleReplayAllDeadLetter(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	deadLetter := true
-	failedState := broker.TaskStateFailed
-
-	// Replay leaves the original task in Failed+dead-letter state and submits
-	// a new PENDING task. Since items do not drop out of the filter, we
-	// advance the offset by the page size as we go.
-	logger := s.logger
-	if logger == nil {
-		logger = slog.Default()
+	result, err := s.deadletter.ReplayAll(r.Context(), pipelineID, 0, nil)
+	if err != nil {
+		s.writeInternalError(w, r, http.StatusInternalServerError, "failed to list dead-letter tasks", "LIST_DEAD_LETTER_FAILED", err)
+		return
 	}
 
-	count := 0
-	truncated := false
-	// failedIDs tracks task IDs that have already failed so that tasks
-	// which reappear on subsequent pages (because RollbackReplayClaim
-	// restored them to dead-letter status) are not retried or double-counted.
-	failedIDs := make(map[string]struct{})
-	for count < maxBulkOperationTasks {
-		// Successfully replayed tasks drop out of the filter because the
-		// claim flipped RoutedToDeadLetter. We fetch offset=0 each iteration.
-		page, err := s.broker.Store().ListTasks(r.Context(), broker.TaskFilter{
-			PipelineID:         &pipelineID,
-			State:              &failedState,
-			RoutedToDeadLetter: &deadLetter,
-			Limit:              maxListLimit,
-		})
-		if err != nil {
-			s.writeInternalError(w, r, http.StatusInternalServerError, "failed to list dead-letter tasks", "LIST_DEAD_LETTER_FAILED", err)
-			return
-		}
-		if len(page.Tasks) == 0 {
-			break
-		}
-		progressed := false
-		for _, task := range page.Tasks {
-			if count >= maxBulkOperationTasks {
-				truncated = true
-				break
-			}
-			if _, already := failedIDs[task.ID]; already {
-				continue
-			}
-			// Unlike discard-all, a failed replay rolls back the claim (restoring
-			// RoutedToDeadLetter=true), so the task can reappear on subsequent pages.
-			// failedIDs prevents retrying and double-counting these tasks.
-			claimed, err := s.broker.Store().ClaimForReplay(r.Context(), task.ID)
-			if err != nil {
-				// Concurrent claim or state drift — log and move on so a
-				// transient skip does not block the rest of the page.
-				logger.Warn("replay-all: failed to claim task",
-					"task_id", task.ID,
-					"pipeline_id", task.PipelineID,
-					"error", err.Error(),
-				)
-				failedIDs[task.ID] = struct{}{}
-				continue
-			}
-			if _, err := s.broker.Submit(r.Context(), claimed.PipelineID, claimed.Payload); err != nil {
-				logger.Warn("replay-all: failed to submit replay task",
-					"task_id", task.ID,
-					"pipeline_id", task.PipelineID,
-					"error", err.Error(),
-				)
-				if rbErr := s.broker.Store().RollbackReplayClaim(r.Context(), task.ID); rbErr != nil {
-					logger.Error("replay-all rollback failed: task may be stranded in REPLAY_PENDING",
-						"task_id", task.ID,
-						"submit_error", err.Error(),
-						"rollback_error", rbErr.Error(),
-					)
-				}
-				failedIDs[task.ID] = struct{}{}
-				continue
-			}
-			replayed := broker.TaskStateReplayed
-			if markErr := s.broker.Store().UpdateTask(r.Context(), task.ID, broker.TaskUpdate{State: &replayed}); markErr != nil {
-				logger.Warn("replay-all: failed to mark original task as REPLAYED",
-					"task_id", task.ID,
-					"error", markErr.Error(),
-				)
-			}
-			count++
-			progressed = true
-		}
-		if !progressed {
-			// Every task in this page failed to be processed. Break to
-			// avoid a tight loop over the same unclaimable entries.
-			break
-		}
-	}
-	if count >= maxBulkOperationTasks {
-		truncated = true
-		logger.Warn("replay-all hit per-call ceiling",
-			"pipeline_id", pipelineID,
-			"ceiling", maxBulkOperationTasks,
-			"count", count,
-		)
-	}
-
-	writeJSON(w, http.StatusAccepted, replayAllResponse{Processed: count, Failed: len(failedIDs), Truncated: truncated})
+	writeJSON(w, http.StatusAccepted, replayAllResponse{
+		Processed: result.Processed,
+		Failed:    result.Failed,
+		Truncated: result.Truncated,
+	})
 }
 
 func (s *Server) handleDiscardAllDeadLetter(w http.ResponseWriter, r *http.Request) {
@@ -606,74 +512,17 @@ func (s *Server) handleDiscardAllDeadLetter(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	deadLetter := true
-	failedState := broker.TaskStateFailed
-
-	// Discarded tasks drop out of the filter (state transitions Failed→Discarded),
-	// so we fetch offset=0 each iteration instead of advancing the offset.
-	logger := s.logger
-	if logger == nil {
-		logger = slog.Default()
+	result, err := s.deadletter.DiscardAll(r.Context(), pipelineID, 0, nil)
+	if err != nil {
+		s.writeInternalError(w, r, http.StatusInternalServerError, "failed to list dead-letter tasks", "LIST_DEAD_LETTER_FAILED", err)
+		return
 	}
 
-	count := 0
-	truncated := false
-	state := broker.TaskStateDiscarded
-	// failedIDs tracks task IDs that have already failed so that tasks
-	// which reappear on subsequent pages (because discard did not remove
-	// them from the filter) are not retried or double-counted.
-	failedIDs := make(map[string]struct{})
-	for count < maxBulkOperationTasks {
-		page, err := s.broker.Store().ListTasks(r.Context(), broker.TaskFilter{
-			PipelineID:         &pipelineID,
-			State:              &failedState,
-			RoutedToDeadLetter: &deadLetter,
-			Limit:              maxListLimit,
-		})
-		if err != nil {
-			s.writeInternalError(w, r, http.StatusInternalServerError, "failed to list dead-letter tasks", "LIST_DEAD_LETTER_FAILED", err)
-			return
-		}
-		if len(page.Tasks) == 0 {
-			break
-		}
-		progressed := false
-		for _, task := range page.Tasks {
-			if count >= maxBulkOperationTasks {
-				truncated = true
-				break
-			}
-			if _, already := failedIDs[task.ID]; already {
-				continue
-			}
-			if err := s.broker.Store().UpdateTask(r.Context(), task.ID, broker.TaskUpdate{State: &state}); err != nil {
-				logger.Warn("discard-all: failed to discard task",
-					"task_id", task.ID,
-					"pipeline_id", task.PipelineID,
-					"error", err.Error(),
-				)
-				failedIDs[task.ID] = struct{}{}
-				continue
-			}
-			count++
-			progressed = true
-		}
-		// If no task in the current page could be updated, break to avoid an
-		// infinite loop (e.g. a permissions or store error that won't recover).
-		if !progressed {
-			break
-		}
-	}
-	if count >= maxBulkOperationTasks {
-		truncated = true
-		logger.Warn("discard-all hit per-call ceiling",
-			"pipeline_id", pipelineID,
-			"ceiling", maxBulkOperationTasks,
-			"count", count,
-		)
-	}
-
-	writeJSON(w, http.StatusOK, discardAllResponse{Processed: count, Failed: len(failedIDs), Truncated: truncated})
+	writeJSON(w, http.StatusOK, discardAllResponse{
+		Processed: result.Processed,
+		Failed:    result.Failed,
+		Truncated: result.Truncated,
+	})
 }
 
 // --- Helpers ---

@@ -30,6 +30,7 @@ import (
 	"github.com/brianbuquoi/overlord/internal/broker"
 	"github.com/brianbuquoi/overlord/internal/config"
 	"github.com/brianbuquoi/overlord/internal/contract"
+	"github.com/brianbuquoi/overlord/internal/deadletter"
 	"github.com/brianbuquoi/overlord/internal/metrics"
 	"github.com/brianbuquoi/overlord/internal/migration"
 	internalplugin "github.com/brianbuquoi/overlord/internal/plugin"
@@ -1516,30 +1517,20 @@ func deadLetterReplayAllCmd() *cobra.Command {
 				return err
 			}
 
-			deadLetter := true
-			failedState := broker.TaskStateFailed
+			svc := deadletter.New(b.Store(), b, logger)
 
-			const maxBulk = 100000
-
-			// Fetch only the total count (Limit: 1) so the confirmation prompt
-			// reflects the true dead-letter set size instead of a capped peek.
-			countResult, err := b.Store().ListTasks(cmd.Context(), broker.TaskFilter{
-				PipelineID:         &pipelineID,
-				State:              &failedState,
-				RoutedToDeadLetter: &deadLetter,
-				Limit:              1,
-			})
+			total, err := svc.Count(cmd.Context(), pipelineID)
 			if err != nil {
 				return err
 			}
 
-			if countResult.Total == 0 {
+			if total == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No dead-lettered tasks found.")
 				return nil
 			}
 
 			if !yes {
-				fmt.Fprint(cmd.ErrOrStderr(), replayAllConfirmMessage(countResult.Total, pipelineID, maxBulk))
+				fmt.Fprint(cmd.ErrOrStderr(), replayAllConfirmMessage(total, pipelineID, deadletter.DefaultMaxTasks))
 				var input string
 				fmt.Fscanln(os.Stdin, &input)
 				if strings.ToLower(input) != "y" {
@@ -1548,66 +1539,25 @@ func deadLetterReplayAllCmd() *cobra.Command {
 				}
 			}
 
-			count := 0
-			failed := 0
-			for count < maxBulk {
-				page, err := b.Store().ListTasks(cmd.Context(), broker.TaskFilter{
-					PipelineID:         &pipelineID,
-					State:              &failedState,
-					RoutedToDeadLetter: &deadLetter,
-					Limit:              1000,
-				})
-				if err != nil {
-					return err
+			progress := func(taskID string, perErr error) {
+				if perErr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Failed to replay task %s: %v\n", taskID, perErr)
+					return
 				}
-				if len(page.Tasks) == 0 {
-					break
-				}
-				progressed := false
-				for _, task := range page.Tasks {
-					if count >= maxBulk {
-						break
-					}
-					claimed, err := b.Store().ClaimForReplay(cmd.Context(), task.ID)
-					if err != nil {
-						logger.Warn("replay-all: failed to claim task",
-							"task_id", task.ID,
-							"pipeline_id", task.PipelineID,
-							"error", err.Error(),
-						)
-						failed++
-						continue
-					}
-					newTask, err := b.Submit(cmd.Context(), claimed.PipelineID, claimed.Payload)
-					if err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "Failed to submit replay for task %s: %v\n", task.ID, err)
-						if rbErr := b.Store().RollbackReplayClaim(cmd.Context(), task.ID); rbErr != nil {
-							fmt.Fprintf(cmd.ErrOrStderr(), "WARNING: replay rollback failed for task %s: %v (rollback error: %v)\n",
-								task.ID, err, rbErr)
-							fmt.Fprintf(cmd.ErrOrStderr(), "Task %s may be stranded in REPLAY_PENDING state — manual recovery required\n", task.ID)
-						}
-						failed++
-						continue
-					}
-					replayed := broker.TaskStateReplayed
-					if markErr := b.Store().UpdateTask(cmd.Context(), task.ID, broker.TaskUpdate{State: &replayed}); markErr != nil {
-						logger.Warn("replay-all: failed to mark original task as REPLAYED",
-							"task_id", task.ID,
-							"error", markErr.Error(),
-						)
-					}
-					fmt.Fprintf(cmd.OutOrStdout(), "%s → %s\n", task.ID, newTask.ID)
-					count++
-					progressed = true
-				}
-				if !progressed {
-					break
-				}
+				fmt.Fprintln(cmd.OutOrStdout(), taskID)
 			}
-			if failed > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "Replayed %d tasks, %d failed.\n", count, failed)
+
+			result, err := svc.ReplayAll(cmd.Context(), pipelineID, 0, progress)
+			if err != nil {
+				return err
+			}
+			if result.Failed > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Replayed %d tasks, %d failed.\n", result.Processed, result.Failed)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Replayed %d tasks.\n", count)
+				fmt.Fprintf(cmd.OutOrStdout(), "Replayed %d tasks.\n", result.Processed)
+			}
+			if result.Truncated {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Note: hit per-invocation ceiling of %d tasks; rerun to drain the remainder.\n", deadletter.DefaultMaxTasks)
 			}
 			return nil
 		},
@@ -1687,25 +1637,20 @@ func deadLetterDiscardAllCmd() *cobra.Command {
 				return err
 			}
 
-			deadLetter := true
-			failedState := broker.TaskStateFailed
-			result, err := b.Store().ListTasks(cmd.Context(), broker.TaskFilter{
-				PipelineID:         &pipelineID,
-				State:              &failedState,
-				RoutedToDeadLetter: &deadLetter,
-				Limit:              1000,
-			})
+			svc := deadletter.New(b.Store(), b, logger)
+
+			total, err := svc.Count(cmd.Context(), pipelineID)
 			if err != nil {
 				return err
 			}
 
-			if len(result.Tasks) == 0 {
+			if total == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No dead-lettered tasks found.")
 				return nil
 			}
 
 			if !yes {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Discard %d dead-lettered tasks for pipeline %q? [y/N] ", len(result.Tasks), pipelineID)
+				fmt.Fprintf(cmd.ErrOrStderr(), "Discard %d dead-lettered tasks for pipeline %q? [y/N] ", total, pipelineID)
 				var input string
 				fmt.Fscanln(os.Stdin, &input)
 				if strings.ToLower(input) != "y" {
@@ -1714,16 +1659,23 @@ func deadLetterDiscardAllCmd() *cobra.Command {
 				}
 			}
 
-			count := 0
-			state := broker.TaskStateDiscarded
-			for _, task := range result.Tasks {
-				if err := b.Store().UpdateTask(cmd.Context(), task.ID, broker.TaskUpdate{State: &state}); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "Failed to discard task %s: %v\n", task.ID, err)
-					continue
+			progress := func(taskID string, perErr error) {
+				if perErr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Failed to discard task %s: %v\n", taskID, perErr)
 				}
-				count++
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Discarded %d tasks.\n", count)
+
+			result, err := svc.DiscardAll(cmd.Context(), pipelineID, 0, progress)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Discarded %d tasks.\n", result.Processed)
+			if result.Failed > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "%d tasks failed to discard.\n", result.Failed)
+			}
+			if result.Truncated {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Note: hit per-invocation ceiling of %d tasks; rerun to drain the remainder.\n", deadletter.DefaultMaxTasks)
+			}
 			return nil
 		},
 	}

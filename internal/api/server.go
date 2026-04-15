@@ -14,6 +14,7 @@ import (
 	"github.com/brianbuquoi/overlord/internal/auth"
 	"github.com/brianbuquoi/overlord/internal/broker"
 	"github.com/brianbuquoi/overlord/internal/dashboard"
+	"github.com/brianbuquoi/overlord/internal/deadletter"
 	"github.com/brianbuquoi/overlord/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -79,6 +80,7 @@ type Server struct {
 	dashPath         string
 	dashEnabled      bool
 	wsTokens         *wsTokenStore
+	deadletter       *deadletter.Service
 }
 
 // NewServer creates a new API server. The metricsPath defaults to "/metrics"
@@ -108,6 +110,7 @@ func NewServerWithContext(ctx context.Context, b *broker.Broker, logger *slog.Lo
 		dashPath:         dashPath,
 		dashEnabled:      dashEnabled,
 		wsTokens:         newWSTokenStore(),
+		deadletter:       deadletter.New(b.Store(), b, logger),
 	}
 	if dashEnabled {
 		dh, err := dashboard.New()
