@@ -51,17 +51,28 @@ type Store interface {
 	UpdateTask(ctx context.Context, taskID string, update TaskUpdate) error
 	GetTask(ctx context.Context, taskID string) (*Task, error)
 	ListTasks(ctx context.Context, filter TaskFilter) (*ListTasksResult, error)
-	// ClaimForReplay atomically transitions a FAILED+dead-lettered task to
-	// REPLAY_PENDING and clears RoutedToDeadLetter. The state flip is the
-	// claim token — concurrent callers see ErrTaskNotReplayable after the
-	// winner lands. The caller is responsible for completing the replay
-	// (Submit + mark REPLAYED) or calling RollbackReplayClaim on submit
-	// failure. Returns ErrTaskNotReplayable / ErrTaskNotFound on the failure
-	// paths.
+	// ClaimForReplay atomically validates that the task is in a replayable state
+	// (state = FAILED and RoutedToDeadLetter = true), transitions the task to
+	// REPLAY_PENDING, and clears RoutedToDeadLetter to false. This is the claim
+	// token — only one concurrent caller can succeed.
+	//
+	// On success, returns the task in REPLAY_PENDING state.
+	// Returns ErrTaskNotFound if the task does not exist.
+	// Returns ErrTaskNotReplayable if the task is not in a claimable state
+	// (including tasks already in REPLAY_PENDING from a prior concurrent claim).
+	//
+	// The caller is responsible for either completing the replay (Submit →
+	// broker, then UpdateTask to REPLAYED) or rolling back via
+	// RollbackReplayClaim if Submit fails.
 	ClaimForReplay(ctx context.Context, taskID string) (*Task, error)
-	// RollbackReplayClaim transitions a task from REPLAY_PENDING back to
-	// FAILED+RoutedToDeadLetter=true. Used by the replay handler when Submit
-	// fails after a successful claim.
+
+	// RollbackReplayClaim atomically transitions a task from REPLAY_PENDING
+	// back to FAILED with RoutedToDeadLetter=true, making it visible and
+	// replayable again.
+	// Returns ErrTaskNotFound if the task does not exist.
+	// Returns ErrTaskNotReplayPending if the task is not in REPLAY_PENDING
+	// state (it may have already been completed or rolled back by another
+	// caller).
 	RollbackReplayClaim(ctx context.Context, taskID string) error
 }
 

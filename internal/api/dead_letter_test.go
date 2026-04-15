@@ -18,7 +18,7 @@ import (
 	"github.com/brianbuquoi/overlord/internal/config"
 	"github.com/brianbuquoi/overlord/internal/contract"
 	"github.com/brianbuquoi/overlord/internal/store/memory"
-	"github.com/brianbuquoi/overlord/internal/store/mock"
+	mock "github.com/brianbuquoi/overlord/internal/testutil/storemock"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -270,10 +270,18 @@ func TestDeadLetterReplayAll(t *testing.T) {
 		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
 	}
 
+	rawBody := w.Body.String()
 	var resp replayAllResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	json.Unmarshal([]byte(rawBody), &resp)
 	if resp.Processed != 3 {
 		t.Fatalf("expected 3 replayed tasks, got %d", resp.Processed)
+	}
+	if resp.Failed != 0 {
+		t.Errorf("expected failed=0, got %d", resp.Failed)
+	}
+	// The `failed` field must always be present on the wire (no omitempty).
+	if !strings.Contains(rawBody, `"failed":0`) {
+		t.Errorf(`response body should contain "failed":0 literally: %s`, rawBody)
 	}
 
 	for _, id := range failedIDs {
@@ -496,10 +504,17 @@ func TestDeadLetterDiscardAll(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
+	rawBody := w.Body.String()
 	var resp discardAllResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	json.Unmarshal([]byte(rawBody), &resp)
 	if resp.Processed != 3 {
 		t.Fatalf("expected 3 discarded, got %d", resp.Processed)
+	}
+	if resp.Failed != 0 {
+		t.Errorf("expected failed=0, got %d", resp.Failed)
+	}
+	if !strings.Contains(rawBody, `"failed":0`) {
+		t.Errorf(`response body should contain "failed":0 literally: %s`, rawBody)
 	}
 
 	// Verify all are DISCARDED.

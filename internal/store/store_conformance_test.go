@@ -275,6 +275,233 @@ func RunConformanceTests(t *testing.T, factory func() store.Store) {
 		}
 	})
 
+	// seedDeadLettered creates a task directly in FAILED+RoutedToDeadLetter=true
+	// state so that ClaimForReplay can claim it.
+	seedDeadLettered := func(t *testing.T, s store.Store, stage string) *broker.Task {
+		t.Helper()
+		ctx := context.Background()
+		task := newTask("pipe-replay", stage)
+		if err := s.EnqueueTask(ctx, stage, task); err != nil {
+			t.Fatalf("enqueue: %v", err)
+		}
+		failed := broker.TaskStateFailed
+		dl := true
+		if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{
+			State:              &failed,
+			RoutedToDeadLetter: &dl,
+		}); err != nil {
+			t.Fatalf("set failed+dl: %v", err)
+		}
+		return task
+	}
+
+	t.Run("ClaimForReplay_HappyPath", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		task := seedDeadLettered(t, s, "stage-claim-happy-"+uuid.New().String())
+
+		claimed, err := s.ClaimForReplay(context.Background(), task.ID)
+		if err != nil {
+			t.Fatalf("ClaimForReplay: %v", err)
+		}
+		if claimed.State != broker.TaskStateReplayPending {
+			t.Errorf("state: got %s, want REPLAY_PENDING", claimed.State)
+		}
+		if claimed.RoutedToDeadLetter {
+			t.Error("RoutedToDeadLetter should be false after claim")
+		}
+	})
+
+	t.Run("ClaimForReplay_NotFound", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		_, err := s.ClaimForReplay(context.Background(), "nonexistent-"+uuid.New().String())
+		if err != store.ErrTaskNotFound {
+			t.Errorf("got %v, want ErrTaskNotFound", err)
+		}
+	})
+
+	t.Run("ClaimForReplay_NotDeadLettered", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		stage := "stage-claim-notdl-" + uuid.New().String()
+		task := newTask("pipe-replay", stage)
+		if err := s.EnqueueTask(ctx, stage, task); err != nil {
+			t.Fatal(err)
+		}
+		failed := broker.TaskStateFailed
+		// RoutedToDeadLetter stays false.
+		if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &failed}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := s.ClaimForReplay(ctx, task.ID)
+		if err != store.ErrTaskNotReplayable {
+			t.Errorf("got %v, want ErrTaskNotReplayable", err)
+		}
+	})
+
+	t.Run("ClaimForReplay_WrongState", func(t *testing.T) {
+		t.Parallel()
+		states := []broker.TaskState{
+			broker.TaskStatePending,
+			broker.TaskStateRouting,
+			broker.TaskStateExecuting,
+			broker.TaskStateValidating,
+			broker.TaskStateDone,
+			broker.TaskStateReplayed,
+		}
+		for _, st := range states {
+			st := st
+			t.Run(string(st), func(t *testing.T) {
+				t.Parallel()
+				s := factory()
+				ctx := context.Background()
+				stage := "stage-claim-wrong-" + uuid.New().String()
+				task := newTask("pipe-replay", stage)
+				if err := s.EnqueueTask(ctx, stage, task); err != nil {
+					t.Fatal(err)
+				}
+				// Set non-replayable state; for the FAILED comparison we also
+				// leave RoutedToDeadLetter=false so each case is non-replayable.
+				state := st
+				if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &state}); err != nil {
+					t.Fatal(err)
+				}
+				_, err := s.ClaimForReplay(ctx, task.ID)
+				if err != store.ErrTaskNotReplayable {
+					t.Errorf("state=%s: got %v, want ErrTaskNotReplayable", st, err)
+				}
+			})
+		}
+	})
+
+	t.Run("ClaimForReplay_AlreadyClaimed", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		task := seedDeadLettered(t, s, "stage-claim-twice-"+uuid.New().String())
+
+		if _, err := s.ClaimForReplay(context.Background(), task.ID); err != nil {
+			t.Fatalf("first claim: %v", err)
+		}
+		_, err := s.ClaimForReplay(context.Background(), task.ID)
+		if err != store.ErrTaskNotReplayable {
+			t.Errorf("second claim: got %v, want ErrTaskNotReplayable", err)
+		}
+	})
+
+	t.Run("ClaimForReplay_Concurrent", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		task := seedDeadLettered(t, s, "stage-claim-concurrent-"+uuid.New().String())
+
+		const N = 20
+		type result struct {
+			claimed *broker.Task
+			err     error
+		}
+		results := make(chan result, N)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(N)
+		for i := 0; i < N; i++ {
+			go func() {
+				defer wg.Done()
+				<-start
+				c, err := s.ClaimForReplay(context.Background(), task.ID)
+				results <- result{claimed: c, err: err}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(results)
+
+		wins := 0
+		notReplayable := 0
+		for r := range results {
+			switch {
+			case r.err == nil && r.claimed != nil:
+				wins++
+			case r.err == store.ErrTaskNotReplayable:
+				notReplayable++
+			default:
+				t.Errorf("unexpected result: claimed=%v err=%v", r.claimed, r.err)
+			}
+		}
+		if wins != 1 {
+			t.Errorf("winners: got %d, want 1", wins)
+		}
+		if notReplayable != N-1 {
+			t.Errorf("ErrTaskNotReplayable losers: got %d, want %d", notReplayable, N-1)
+		}
+	})
+
+	t.Run("RollbackReplayClaim_HappyPath", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		task := seedDeadLettered(t, s, "stage-rollback-happy-"+uuid.New().String())
+		ctx := context.Background()
+
+		if _, err := s.ClaimForReplay(ctx, task.ID); err != nil {
+			t.Fatalf("claim: %v", err)
+		}
+		if err := s.RollbackReplayClaim(ctx, task.ID); err != nil {
+			t.Fatalf("rollback: %v", err)
+		}
+		got, err := s.GetTask(ctx, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != broker.TaskStateFailed {
+			t.Errorf("state: got %s, want FAILED", got.State)
+		}
+		if !got.RoutedToDeadLetter {
+			t.Error("RoutedToDeadLetter should be true after rollback")
+		}
+	})
+
+	t.Run("RollbackReplayClaim_NotFound", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		err := s.RollbackReplayClaim(context.Background(), "nonexistent-"+uuid.New().String())
+		if err != store.ErrTaskNotFound {
+			t.Errorf("got %v, want ErrTaskNotFound", err)
+		}
+	})
+
+	t.Run("RollbackReplayClaim_WrongState", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		// Seed in FAILED+DL but do not claim — so it's not REPLAY_PENDING.
+		task := seedDeadLettered(t, s, "stage-rollback-wrong-"+uuid.New().String())
+
+		err := s.RollbackReplayClaim(context.Background(), task.ID)
+		if err != store.ErrTaskNotReplayPending {
+			t.Errorf("got %v, want ErrTaskNotReplayPending", err)
+		}
+	})
+
+	t.Run("RollbackReplayClaim_AfterRollback", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		task := seedDeadLettered(t, s, "stage-rollback-then-claim-"+uuid.New().String())
+		ctx := context.Background()
+
+		if _, err := s.ClaimForReplay(ctx, task.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RollbackReplayClaim(ctx, task.ID); err != nil {
+			t.Fatal(err)
+		}
+		claimed, err := s.ClaimForReplay(ctx, task.ID)
+		if err != nil {
+			t.Fatalf("claim-after-rollback: %v", err)
+		}
+		if claimed.State != broker.TaskStateReplayPending {
+			t.Errorf("state: got %s, want REPLAY_PENDING", claimed.State)
+		}
+	})
+
 	t.Run("ExpiredTasksNotReturned", func(t *testing.T) {
 		t.Parallel()
 		s := factory()

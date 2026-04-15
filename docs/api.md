@@ -31,10 +31,13 @@ carries only read scope.
 
 ```json
 {
-  "token": "<32-char hex string>",
+  "token": "<64-char hex string>",
   "expires_in": 30
 }
 ```
+
+The token is a 64-character hex-encoded string (32 random bytes).
+It is single-use and expires after 30 seconds from issuance.
 
 ### Error responses
 
@@ -44,11 +47,13 @@ carries only read scope.
 
 ### Logging
 
-- Issuance is logged at `INFO` with `request_id` and `expires_in`. The
-  token value itself is never logged.
-- Successful consumption (on WebSocket upgrade) is logged at `DEBUG`.
-- Rejected consumption attempts are logged at `WARN` with a `reason` tag
-  such as "expired or already consumed or not found".
+- Issuance is logged at `INFO` with `request_id`, `client_ip`, and
+  `expires_in`. The token value itself is never logged.
+- Successful consumption (on WebSocket upgrade) is logged at `DEBUG` with
+  `request_id`.
+- Rejected consumption attempts are logged at `WARN` with `request_id`,
+  `client_ip`, and a `reason` tag such as "expired or already consumed or
+  not found".
 
 ### Example
 

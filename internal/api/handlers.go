@@ -329,13 +329,13 @@ type replayResponse struct {
 
 type replayAllResponse struct {
 	Processed int  `json:"processed"`
-	Failed    int  `json:"failed,omitempty"`
+	Failed    int  `json:"failed"`
 	Truncated bool `json:"truncated,omitempty"`
 }
 
 type discardAllResponse struct {
 	Processed int  `json:"processed"`
-	Failed    int  `json:"failed,omitempty"`
+	Failed    int  `json:"failed"`
 	Truncated bool `json:"truncated,omitempty"`
 }
 
@@ -718,6 +718,7 @@ func (s *Server) handleIssueWSToken(w http.ResponseWriter, r *http.Request) {
 	}
 	logger.Info("ws-token issued",
 		"request_id", r.Header.Get(requestIDHeader),
+		"client_ip", clientIP(r),
 		"expires_in", ttl,
 	)
 	writeJSON(w, http.StatusOK, wsTokenResponse{Token: token, ExpiresIn: ttl})

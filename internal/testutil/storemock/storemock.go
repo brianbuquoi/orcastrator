@@ -1,9 +1,12 @@
-// Package mock provides a test-only store.Store implementation that
-// delegates to an in-memory backend by default and lets individual tests
-// inject failures on a per-method basis. The default-delegating design
-// means tests only need to override the methods they care about — the
-// rest continue to behave like a real working store.
-package mock
+// Package storemock provides a test-only mock implementation of store.Store
+// for use in handler and integration tests. Do not import this package in
+// production code.
+//
+// The mock delegates to an in-memory backend by default and lets individual
+// tests inject failures on a per-method basis. The default-delegating design
+// means tests only need to override the methods they care about — the rest
+// continue to behave like a real working store.
+package storemock
 
 import (
 	"context"
@@ -28,12 +31,12 @@ type Store struct {
 
 	mem *memory.MemoryStore
 
-	OnEnqueueTask    func(ctx context.Context, stageID string, task *broker.Task) error
-	OnDequeueTask    func(ctx context.Context, stageID string) (*broker.Task, error)
-	OnUpdateTask     func(ctx context.Context, taskID string, update broker.TaskUpdate) error
-	OnGetTask        func(ctx context.Context, taskID string) (*broker.Task, error)
-	OnListTasks      func(ctx context.Context, filter broker.TaskFilter) (*broker.ListTasksResult, error)
-	OnClaimForReplay    func(ctx context.Context, taskID string) (*broker.Task, error)
+	OnEnqueueTask         func(ctx context.Context, stageID string, task *broker.Task) error
+	OnDequeueTask         func(ctx context.Context, stageID string) (*broker.Task, error)
+	OnUpdateTask          func(ctx context.Context, taskID string, update broker.TaskUpdate) error
+	OnGetTask             func(ctx context.Context, taskID string) (*broker.Task, error)
+	OnListTasks           func(ctx context.Context, filter broker.TaskFilter) (*broker.ListTasksResult, error)
+	OnClaimForReplay      func(ctx context.Context, taskID string) (*broker.Task, error)
 	OnRollbackReplayClaim func(ctx context.Context, taskID string) error
 }
 

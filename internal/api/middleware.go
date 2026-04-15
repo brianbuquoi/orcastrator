@@ -149,6 +149,7 @@ func authMiddleware(keys []auth.APIKey, tracker *auth.BruteForceTracker, logger 
 					}
 					logger.Warn("ws-token rejected",
 						"request_id", r.Header.Get(requestIDHeader),
+						"client_ip", ip,
 						"reason", "expired or already consumed or not found",
 					)
 				}
