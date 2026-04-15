@@ -1,6 +1,5 @@
 # Infra-only config. Defines store + agent credentials; pipelines live
-# in separate files merged at runtime via --pipeline-file (submit) or
-# --pipeline (exec).
+# in separate files merged at runtime via --pipeline (submit or exec).
 version: "1"
 
 agents:

@@ -6,8 +6,8 @@ here.
 
 > **CLI note**: `overlord submit` and `overlord exec` both accept a
 > pipeline definition file alongside the infra config.
-> - `overlord submit --config infra.yaml --pipeline-file pipeline.yaml --pipeline <id> --payload …`
-> - `overlord exec   --config infra.yaml --pipeline      pipeline.yaml --id       <id> --payload …`
+> - `overlord submit --config infra.yaml --pipeline pipeline.yaml --id <id> --payload …`
+> - `overlord exec   --config infra.yaml --pipeline pipeline.yaml --id <id> --payload …`
 >
 > Schemas and pipelines from the pipeline file are merged with the infra
 > config at runtime. See [exec.md](exec.md) for the full command reference.

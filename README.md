@@ -170,8 +170,8 @@ config, and every agent reference is verified against the infra agents.
 overlord exec --config ./infra.yaml --pipeline ./pipeline.yaml \
   --id my-pipe --payload '{…}'
 
-overlord submit --config ./infra.yaml --pipeline-file ./pipeline.yaml \
-  --pipeline my-pipe --payload '{…}' --wait
+overlord submit --config ./infra.yaml --pipeline ./pipeline.yaml \
+  --id my-pipe --payload '{…}' --wait
 
 # Single combined file still works everywhere:
 overlord exec --config ./everything.yaml --id my-pipe --payload '{…}'

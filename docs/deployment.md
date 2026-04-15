@@ -362,12 +362,12 @@ environment variable:
 ```bash
 # Environment variable (recommended)
 OVERLORD_API_KEY=your-key-here overlord submit \
-  --config config.yaml --pipeline hello \
+  --config config.yaml --id hello \
   --payload '{"request": "Say hello"}'
 
 # Flag
 overlord submit --api-key your-key-here \
-  --config config.yaml --pipeline hello \
+  --config config.yaml --id hello \
   --payload '{"request": "Say hello"}'
 ```
 
@@ -439,7 +439,7 @@ for i in 1 2 3 4 5 6 7 8; do
   echo "=== VECTOR $i ==="
   overlord submit \
     --config config/examples/05-injection-stress-test.yaml \
-    --pipeline injection-stress-test \
+    --id injection-stress-test \
     --payload test-inputs/05-vector-$i.json \
     --wait 2>&1 | grep -E "injection_detected|severity|sanitizer_warnings"
   echo ""

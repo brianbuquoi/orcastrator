@@ -75,7 +75,7 @@ func TestCLI_Submit_FilePayload_Directory(t *testing.T) {
 	dir := t.TempDir()
 
 	root := rootCmd()
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "test-pipeline",
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "test-pipeline",
 		"--payload", "@" + dir})
 	err := root.Execute()
 	if err == nil {
@@ -90,7 +90,7 @@ func TestCLI_Submit_FilePayload_Empty(t *testing.T) {
 	os.WriteFile(emptyFile, []byte(""), 0o644)
 
 	root := rootCmd()
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "test-pipeline",
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "test-pipeline",
 		"--payload", "@" + emptyFile})
 	err := root.Execute()
 	if err == nil {
@@ -105,7 +105,7 @@ func TestCLI_Submit_FilePayload_ValidJSON(t *testing.T) {
 	os.WriteFile(payloadFile, []byte(`{"request":"from file"}`), 0o644)
 
 	root := rootCmd()
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "test-pipeline",
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "test-pipeline",
 		"--payload", "@" + payloadFile})
 	err := root.Execute()
 	if err != nil {

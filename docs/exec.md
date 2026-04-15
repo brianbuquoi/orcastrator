@@ -151,12 +151,12 @@ Merge rules:
   defined in the infra config — otherwise the merge fails with the stage
   ID and missing agent ID reported in the error.
 
-The same pattern works for `overlord submit`, via `--pipeline-file`:
+The same pattern works for `overlord submit`, using the same flag names:
 
 ```bash
 overlord submit --config ./infra.yaml \
-  --pipeline-file ./pipelines/code_review.yaml \
-  --pipeline code-review-loop \
+  --pipeline ./pipelines/code_review.yaml \
+  --id code-review-loop \
   --payload @./input.json --wait
 ```
 

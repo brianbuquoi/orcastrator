@@ -21,7 +21,7 @@ make example-code-review
 # Or manually:
 go run ./cmd/overlord submit \
   --config config/examples/code_review.yaml \
-  --pipeline code-review \
+  --id code-review \
   --payload @examples/code_review/sample_input.json \
   --wait \
   --timeout 3m

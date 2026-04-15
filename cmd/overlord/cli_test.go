@@ -305,7 +305,7 @@ func TestCLI_Submit_InvalidJSON(t *testing.T) {
 	configPath := writeTestYAML(t)
 
 	root := rootCmd()
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "test-pipeline", "--payload", "not-json"})
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "test-pipeline", "--payload", "not-json"})
 
 	err := root.Execute()
 	if err == nil {
@@ -320,7 +320,7 @@ func TestCLI_Submit_PipelineNotFound(t *testing.T) {
 	configPath := writeTestYAML(t)
 
 	root := rootCmd()
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "nonexistent", "--payload", `{"request":"test"}`})
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "nonexistent", "--payload", `{"request":"test"}`})
 
 	err := root.Execute()
 	if err == nil {
@@ -342,7 +342,7 @@ func TestCLI_Submit_FilePayload(t *testing.T) {
 	}
 
 	root := rootCmd()
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "test-pipeline", "--payload", fmt.Sprintf("@%s", payloadPath)})
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "test-pipeline", "--payload", fmt.Sprintf("@%s", payloadPath)})
 
 	// This will succeed (submit + print ID) but won't wait.
 	err := root.Execute()
@@ -722,7 +722,7 @@ func TestCLI_Submit_DryRun_Valid(t *testing.T) {
 	root := rootCmd()
 	var stdout bytes.Buffer
 	root.SetOut(&stdout)
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "test-pipeline",
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "test-pipeline",
 		"--payload", `{"request":"hello"}`, "--dry-run"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("dry-run with valid payload: %v", err)
@@ -744,7 +744,7 @@ func TestCLI_Submit_DryRun_Invalid(t *testing.T) {
 	configPath := writeTestYAML(t)
 
 	root := rootCmd()
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "test-pipeline",
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "test-pipeline",
 		"--payload", `{"wrong_field":"hello"}`, "--dry-run"})
 	err := root.Execute()
 	if err == nil {
@@ -777,7 +777,7 @@ func TestCLI_Submit_DryRun_DoesNotSubmit(t *testing.T) {
 	root := rootCmd()
 	var stdout bytes.Buffer
 	root.SetOut(&stdout)
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "test-pipeline",
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "test-pipeline",
 		"--payload", `{"request":"hello"}`, "--dry-run"})
 	root.Execute()
 
@@ -795,7 +795,7 @@ func TestCLI_Submit_DryRun_PipelineNotFound(t *testing.T) {
 	configPath := writeTestYAML(t)
 
 	root := rootCmd()
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "nonexistent",
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "nonexistent",
 		"--payload", `{"request":"hello"}`, "--dry-run"})
 	err := root.Execute()
 	if err == nil {
@@ -830,7 +830,7 @@ func TestCLI_ErrorMessages_SubmitInvalidPayload(t *testing.T) {
 	configPath := writeTestYAML(t)
 
 	root := rootCmd()
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "test-pipeline", "--payload", "not-json"})
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "test-pipeline", "--payload", "not-json"})
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("expected error")
@@ -844,7 +844,7 @@ func TestCLI_ErrorMessages_SubmitPayloadFileMissing(t *testing.T) {
 	configPath := writeTestYAML(t)
 
 	root := rootCmd()
-	root.SetArgs([]string{"submit", "--config", configPath, "--pipeline", "test-pipeline", "--payload", "@/nonexistent/file.json"})
+	root.SetArgs([]string{"submit", "--config", configPath, "--id", "test-pipeline", "--payload", "@/nonexistent/file.json"})
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("expected error")

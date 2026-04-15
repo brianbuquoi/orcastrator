@@ -92,7 +92,7 @@ Quick start:
   overlord run --config pipeline.yaml
 
   # Submit a task
-  overlord submit --config pipeline.yaml --pipeline my-pipeline \
+  overlord submit --config pipeline.yaml --id my-pipeline \
     --payload '{"request": "hello"}'
 
   # Check task status
@@ -459,16 +459,19 @@ func submitCmd() *cobra.Command {
 		Long: `Submit a task to a pipeline. The payload can be inline JSON or a file
 reference prefixed with @.
 
+Use --pipeline to point at a standalone pipeline definition YAML file that is
+merged with --config. Use --id to select which pipeline (by ID) to submit to.
+
 Use --dry-run to validate the payload against the first stage's input schema
 without actually submitting the task. This is useful for debugging schema
 issues without consuming API quota.`,
-		Example: `  overlord submit --config pipeline.yaml --pipeline my-pipeline \
+		Example: `  overlord submit --config infra.yaml --pipeline ./pipeline.yaml --id my-pipeline \
     --payload '{"request": "hello"}'
 
-  overlord submit --config pipeline.yaml --pipeline my-pipeline \
+  overlord submit --config infra.yaml --id my-pipeline \
     --payload @input.json --wait
 
-  overlord submit --config pipeline.yaml --pipeline my-pipeline \
+  overlord submit --config infra.yaml --id my-pipeline \
     --payload '{"request": "test"}' --dry-run`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := newLogger()
@@ -535,14 +538,14 @@ issues without consuming API quota.`,
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "", "path to infra (or combined) YAML config file")
-	cmd.Flags().StringVar(&pipelineFile, "pipeline-file", "", "optional path to a standalone pipeline definition file merged with --config")
-	cmd.Flags().StringVar(&pipelineID, "pipeline", "", "pipeline ID to submit to")
+	cmd.Flags().StringVar(&pipelineFile, "pipeline", "", "path to a standalone pipeline definition YAML file merged with --config (optional)")
+	cmd.Flags().StringVar(&pipelineID, "id", "", "pipeline ID to submit to (required)")
 	cmd.Flags().StringVar(&payload, "payload", "", "JSON payload or @file")
 	cmd.Flags().BoolVar(&wait, "wait", false, "poll until task completes")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate payload against first stage schema without submitting")
 	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "max wait time when --wait is set")
 	cmd.MarkFlagRequired("config")
-	cmd.MarkFlagRequired("pipeline")
+	cmd.MarkFlagRequired("id")
 	cmd.MarkFlagRequired("payload")
 	return cmd
 }
