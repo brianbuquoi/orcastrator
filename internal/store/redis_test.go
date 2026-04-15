@@ -971,3 +971,202 @@ func TestRedis_ClaimForReplay_TransitionsToReplayPending(t *testing.T) {
 		t.Errorf("task not in REPLAY_PENDING index")
 	}
 }
+
+// TestRedis_ListTasks_StatePipelineIndex verifies that a state+pipeline
+// filter reads from the two-dimensional index and does not mix in tasks
+// from other pipelines.
+func TestRedis_ListTasks_StatePipelineIndex(t *testing.T) {
+	t.Parallel()
+	s, _, client := newRedisTestStore(t, "sp:")
+	ctx := context.Background()
+
+	pipe1 := "pipe-1-" + uuid.New().String()
+	pipe2 := "pipe-2-" + uuid.New().String()
+	stage := "stage-sp-" + uuid.New().String()
+
+	var pipe1IDs []string
+	for i := 0; i < 3; i++ {
+		task := newTask(pipe1, stage)
+		if err := s.EnqueueTask(ctx, stage, task); err != nil {
+			t.Fatal(err)
+		}
+		failed := broker.TaskStateFailed
+		if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &failed}); err != nil {
+			t.Fatal(err)
+		}
+		pipe1IDs = append(pipe1IDs, task.ID)
+	}
+	for i := 0; i < 2; i++ {
+		task := newTask(pipe2, stage)
+		if err := s.EnqueueTask(ctx, stage, task); err != nil {
+			t.Fatal(err)
+		}
+		failed := broker.TaskStateFailed
+		if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &failed}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The 2D index key for pipe1/FAILED must exist with exactly 3 members.
+	key1 := fmt.Sprintf("sp:tasks:state:%s:pipeline:%s", broker.TaskStateFailed, pipe1)
+	c, err := client.ZCard(ctx, key1).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c != 3 {
+		t.Errorf("2D index pipe1/FAILED: got %d members, want 3", c)
+	}
+	key2 := fmt.Sprintf("sp:tasks:state:%s:pipeline:%s", broker.TaskStateFailed, pipe2)
+	if c, _ := client.ZCard(ctx, key2).Result(); c != 2 {
+		t.Errorf("2D index pipe2/FAILED: got %d members, want 2", c)
+	}
+
+	failed := broker.TaskStateFailed
+	result, err := s.ListTasks(ctx, broker.TaskFilter{State: &failed, PipelineID: &pipe1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Tasks) != 3 {
+		t.Errorf("got %d tasks, want 3", len(result.Tasks))
+	}
+	gotIDs := make(map[string]bool)
+	for _, task := range result.Tasks {
+		gotIDs[task.ID] = true
+		if task.PipelineID != pipe1 {
+			t.Errorf("got task from pipeline %s, want %s", task.PipelineID, pipe1)
+		}
+	}
+	for _, id := range pipe1IDs {
+		if !gotIDs[id] {
+			t.Errorf("expected task %s not returned", id)
+		}
+	}
+}
+
+// TestRedis_StatePipelineIndex_StateTransition verifies that UpdateTask
+// moves the task between 2D indexes on state change.
+func TestRedis_StatePipelineIndex_StateTransition(t *testing.T) {
+	t.Parallel()
+	s, _, client := newRedisTestStore(t, "sptr:")
+	ctx := context.Background()
+
+	pipeline := "pipe-tr-" + uuid.New().String()
+	stage := "stage-tr-" + uuid.New().String()
+
+	task := newTask(pipeline, stage)
+	if err := s.EnqueueTask(ctx, stage, task); err != nil {
+		t.Fatal(err)
+	}
+
+	pendingKey := fmt.Sprintf("sptr:tasks:state:%s:pipeline:%s", broker.TaskStatePending, pipeline)
+	failedKey := fmt.Sprintf("sptr:tasks:state:%s:pipeline:%s", broker.TaskStateFailed, pipeline)
+
+	if score, err := client.ZScore(ctx, pendingKey, task.ID).Result(); err != nil || score == 0 {
+		t.Errorf("task should be in PENDING 2D index, err=%v score=%v", err, score)
+	}
+
+	failed := broker.TaskStateFailed
+	if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &failed}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := client.ZScore(ctx, pendingKey, task.ID).Result(); err == nil {
+		t.Errorf("task should be removed from PENDING 2D index after transition")
+	}
+	if _, err := client.ZScore(ctx, failedKey, task.ID).Result(); err != nil {
+		t.Errorf("task should be in FAILED 2D index after transition, err=%v", err)
+	}
+}
+
+// TestRedis_StatePipelineIndex_ClaimForReplay verifies ClaimForReplay moves
+// the task between FAILED and REPLAY_PENDING 2D indexes.
+func TestRedis_StatePipelineIndex_ClaimForReplay(t *testing.T) {
+	t.Parallel()
+	s, _, client := newRedisTestStore(t, "spcr:")
+	ctx := context.Background()
+
+	pipeline := "pipe-cr-" + uuid.New().String()
+	stage := "stage-cr-" + uuid.New().String()
+
+	task := &broker.Task{
+		ID: uuid.New().String(), PipelineID: pipeline, StageID: stage,
+		InputSchemaName: "in", InputSchemaVersion: "v1",
+		OutputSchemaName: "out", OutputSchemaVersion: "v1",
+		Payload: json.RawMessage(`{}`), Metadata: map[string]any{},
+		State: broker.TaskStateFailed, RoutedToDeadLetter: true,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.EnqueueTask(ctx, stage, task); err != nil {
+		t.Fatal(err)
+	}
+	failed := broker.TaskStateFailed
+	if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &failed}); err != nil {
+		t.Fatal(err)
+	}
+	dl := true
+	if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{RoutedToDeadLetter: &dl}); err != nil {
+		t.Fatal(err)
+	}
+
+	failedKey := fmt.Sprintf("spcr:tasks:state:%s:pipeline:%s", broker.TaskStateFailed, pipeline)
+	rpKey := fmt.Sprintf("spcr:tasks:state:%s:pipeline:%s", broker.TaskStateReplayPending, pipeline)
+
+	if _, err := client.ZScore(ctx, failedKey, task.ID).Result(); err != nil {
+		t.Fatalf("task should be in FAILED 2D index before claim: %v", err)
+	}
+
+	if _, err := s.ClaimForReplay(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := client.ZScore(ctx, failedKey, task.ID).Result(); err == nil {
+		t.Errorf("task should be removed from FAILED 2D index after claim")
+	}
+	if _, err := client.ZScore(ctx, rpKey, task.ID).Result(); err != nil {
+		t.Errorf("task should be in REPLAY_PENDING 2D index after claim, err=%v", err)
+	}
+}
+
+// TestRedis_StatePipelineIndex_RollbackReplayClaim verifies that a rollback
+// moves the task back to FAILED in the 2D index.
+func TestRedis_StatePipelineIndex_RollbackReplayClaim(t *testing.T) {
+	t.Parallel()
+	s, _, client := newRedisTestStore(t, "sprb:")
+	ctx := context.Background()
+
+	pipeline := "pipe-rb-" + uuid.New().String()
+	stage := "stage-rb-" + uuid.New().String()
+
+	task := &broker.Task{
+		ID: uuid.New().String(), PipelineID: pipeline, StageID: stage,
+		InputSchemaName: "in", InputSchemaVersion: "v1",
+		OutputSchemaName: "out", OutputSchemaVersion: "v1",
+		Payload: json.RawMessage(`{}`), Metadata: map[string]any{},
+		State: broker.TaskStateFailed, RoutedToDeadLetter: true,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.EnqueueTask(ctx, stage, task); err != nil {
+		t.Fatal(err)
+	}
+	failed := broker.TaskStateFailed
+	s.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &failed})
+	dl := true
+	s.UpdateTask(ctx, task.ID, broker.TaskUpdate{RoutedToDeadLetter: &dl})
+
+	if _, err := s.ClaimForReplay(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RollbackReplayClaim(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	failedKey := fmt.Sprintf("sprb:tasks:state:%s:pipeline:%s", broker.TaskStateFailed, pipeline)
+	rpKey := fmt.Sprintf("sprb:tasks:state:%s:pipeline:%s", broker.TaskStateReplayPending, pipeline)
+
+	if _, err := client.ZScore(ctx, rpKey, task.ID).Result(); err == nil {
+		t.Errorf("task should be removed from REPLAY_PENDING 2D index after rollback")
+	}
+	if _, err := client.ZScore(ctx, failedKey, task.ID).Result(); err != nil {
+		t.Errorf("task should be back in FAILED 2D index after rollback, err=%v", err)
+	}
+}

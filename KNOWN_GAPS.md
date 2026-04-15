@@ -155,19 +155,31 @@ access (trusted), but defense-in-depth gap.
 **Recommendation:** Reject paths containing `..` or resolve to absolute and verify
 within an allowed directory.
 
-### KG-004: Redis state index is not pipeline-scoped for dead-letter bulk ops
-**Location:** `internal/store/redis/redis.go` — `listTasksFromStateIndex`
+### KG-004: Redis state index is not pipeline-scoped for dead-letter bulk ops — RESOLVED
+**Location:** `internal/store/redis/redis.go` — `listTasksFromStatePipelineIndex`
 **Severity:** Medium
-**Description:** `ListTasks` with a state filter reads the entire per-state
-ZSET and filters/paginates in Go. `replay-all` and `discard-all` call this in
-a loop, so on large dead-letter backlogs each page iteration performs a full
-state-scan and MGET of every FAILED task id across every pipeline. Under an
-accumulating backlog this becomes an authenticated DoS footgun — the cost
-grows O(total_failed) per page fetched. Fixing properly requires a
-two-dimensional state×pipeline index (`tasks:state:{state}:pipe:{id}` ZSETs).
-**Recommendation:** Defer until dead-letter backlog volume justifies the
-schema change; monitor ListTasks latency under state filter.
-**Status:** Open — known scale limit; acceptable for current deployments.
+**Status:** Resolved
+**Description:** `ListTasks` with both State and PipelineID filters previously
+read the entire per-state ZSET and filtered/paginated in Go, an O(total_failed)
+scan per page fetched on accumulating dead-letter backlogs.
+**Resolution:** Added a two-dimensional state×pipeline index at
+`{prefix}tasks:state:{STATE}:pipeline:{PIPELINE_ID}`. Maintained on
+EnqueueTask and in all three Lua state-transition scripts (updateTaskScript,
+claimForReplayScript, rollbackReplayClaimScript). `ListTasks` with a
+state+pipeline filter now reads the scoped 2D index directly.
+
+### KG-005: Redis two-dimensional state×pipeline index is not backfilled
+**Location:** `internal/store/redis/redis.go`
+**Severity:** Low
+**Description:** The two-dimensional state×pipeline index introduced for KG-004
+is populated on write going forward. Tasks created before this index was
+introduced will not appear in pipeline-scoped state queries until their state
+next transitions. A backfill script iterating existing task keys and populating
+the index is needed for live deployments upgrading from a prior version.
+**Recommendation:** Provide a one-shot CLI backfill command that SCANs
+`{prefix}task:*`, decodes each, and ZADDs to the corresponding
+`tasks:state:{STATE}:pipeline:{PIPELINE_ID}` key.
+**Status:** Open.
 
 ### SEC4-010: IPv6 brute force tracking per /128 (not /64)
 **Location:** `internal/auth/auth.go` — `RecordFailure()`, `internal/api/middleware.go` — `clientIP()`
@@ -350,7 +362,8 @@ without a total count.
 | KG-001 | Lua cjson round-trip shifts numeric encoding | Low | Open |
 | KG-002 | Per-state index is flat (not 2D) | Low | Open |
 | KG-003 | ListTasks total-count over-reports with certain filters | Low | Open |
-| KG-004 | Redis state index not pipeline-scoped for bulk ops | Medium | Open |
+| KG-004 | Redis state index not pipeline-scoped for bulk ops | Medium | Resolved |
+| KG-005 | Redis 2D state×pipeline index not backfilled | Low | Open |
 
 ---
 

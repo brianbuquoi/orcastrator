@@ -29,9 +29,24 @@ import (
 //	                                          member=taskID). Maintained transactionally on
 //	                                          enqueue and inside the atomic UpdateTask Lua
 //	                                          script. Used by ListTasks when filter.State is set.
+//	{prefix}tasks:state:{STATE}:pipeline:{PIPELINE_ID}
+//	                                        → ZSET, score = task.CreatedAt unix seconds.
+//	                                          Members: task IDs in STATE for PIPELINE_ID.
+//	                                          Written on: EnqueueTask, state transitions in
+//	                                          updateTaskScript, claimForReplayScript, and
+//	                                          rollbackReplayClaimScript.
+//	                                          Removed on: task key expiry (TTL-based, not
+//	                                          explicit removal).
+//	                                          Purpose: O(log N) ListTasks for state+pipeline
+//	                                          filter combinations.
 //
 // Index entries whose task key has TTL-expired become dangling and are silently
 // skipped by ListTasks (fetchTasksByIDs tolerates MGET misses).
+//
+// Note: two-dimensional state×pipeline index is populated on write going
+// forward. Tasks created before this index was introduced will not appear in
+// pipeline-scoped state queries until their state transitions. A backfill
+// script is needed for existing deployments with live task data.
 type RedisStore struct {
 	client  redis.Cmdable
 	prefix  string
@@ -83,6 +98,17 @@ func (r *RedisStore) stateIndexPrefix() string {
 	return fmt.Sprintf("%stasks:state:", r.prefix)
 }
 
+// statePipelineIndexKey returns the two-dimensional state×pipeline index key.
+func (r *RedisStore) statePipelineIndexKey(state broker.TaskState, pipelineID string) string {
+	return fmt.Sprintf("%stasks:state:%s:pipeline:%s", r.prefix, string(state), pipelineID)
+}
+
+// statePipelineIndexPrefix returns the prefix for scanning all pipeline
+// indexes for a given state.
+func (r *RedisStore) statePipelineIndexPrefix(state broker.TaskState) string {
+	return fmt.Sprintf("%stasks:state:%s:pipeline:", r.prefix, string(state))
+}
+
 func (r *RedisStore) EnqueueTask(ctx context.Context, stageID string, task *broker.Task) error {
 	data, err := json.Marshal(task)
 	if err != nil {
@@ -112,6 +138,15 @@ func (r *RedisStore) EnqueueTask(ctx context.Context, stageID string, task *brok
 		Score:  score,
 		Member: task.ID,
 	})
+
+	// Maintain two-dimensional state×pipeline index for ListTasks with
+	// combined state+pipeline filter.
+	if task.PipelineID != "" {
+		pipe.ZAdd(ctx, r.statePipelineIndexKey(task.State, task.PipelineID), redis.Z{
+			Score:  score,
+			Member: task.ID,
+		})
+	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("redis: enqueue: %w", err)
@@ -212,6 +247,11 @@ local newState = task.state
 if oldState ~= nil and newState ~= nil and oldState ~= newState then
   redis.call('ZREM', ARGV[3] .. oldState, task.id)
   redis.call('ZADD', ARGV[3] .. newState, tonumber(ARGV[4]), task.id)
+  local pipeline_id = task.pipeline_id
+  if pipeline_id and pipeline_id ~= '' then
+    redis.call('ZREM', ARGV[3] .. oldState .. ':pipeline:' .. pipeline_id, task.id)
+    redis.call('ZADD', ARGV[3] .. newState .. ':pipeline:' .. pipeline_id, tonumber(ARGV[4]), task.id)
+  end
 end
 return tostring(newState)
 `
@@ -330,6 +370,11 @@ else
 end
 redis.call('ZREM', ARGV[2] .. 'FAILED', task.id)
 redis.call('ZADD', ARGV[2] .. 'REPLAY_PENDING', tonumber(ARGV[3]), task.id)
+local pipeline_id = task.pipeline_id
+if pipeline_id and pipeline_id ~= '' then
+  redis.call('ZREM', ARGV[2] .. 'FAILED:pipeline:' .. pipeline_id, task.id)
+  redis.call('ZADD', ARGV[2] .. 'REPLAY_PENDING:pipeline:' .. pipeline_id, tonumber(ARGV[3]), task.id)
+end
 return newData
 `
 
@@ -365,6 +410,11 @@ else
 end
 redis.call('ZREM', ARGV[2] .. 'REPLAY_PENDING', task.id)
 redis.call('ZADD', ARGV[2] .. 'FAILED', tonumber(ARGV[3]), task.id)
+local pipeline_id = task.pipeline_id
+if pipeline_id and pipeline_id ~= '' then
+  redis.call('ZREM', ARGV[2] .. 'REPLAY_PENDING:pipeline:' .. pipeline_id, task.id)
+  redis.call('ZADD', ARGV[2] .. 'FAILED:pipeline:' .. pipeline_id, tonumber(ARGV[3]), task.id)
+end
 return 'OK'
 `
 
@@ -463,6 +513,13 @@ func (r *RedisStore) GetTask(ctx context.Context, taskID string) (*broker.Task, 
 }
 
 func (r *RedisStore) ListTasks(ctx context.Context, filter broker.TaskFilter) (*broker.ListTasksResult, error) {
+	// When both state and pipeline filters are present, read from the
+	// two-dimensional state×pipeline index — O(log N) against the subset
+	// rather than a full scan of the flat state ZSET.
+	if filter.State != nil && filter.PipelineID != nil {
+		return r.listTasksFromStatePipelineIndex(ctx, filter)
+	}
+
 	// When a state filter is present, read from the per-state secondary index.
 	// This avoids scanning every pipeline/stage index just to throw most IDs
 	// away in Go post-filtering.
@@ -562,6 +619,38 @@ func (r *RedisStore) listTasksFromStateIndex(ctx context.Context, filter broker.
 	}).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redis: zrange state index: %w", err)
+	}
+
+	now := time.Now()
+	tasks := r.fetchTasksByIDs(ctx, taskIDs, now, filter)
+	total := len(tasks)
+
+	if filter.Offset > 0 && filter.Offset < len(tasks) {
+		tasks = tasks[filter.Offset:]
+	} else if filter.Offset >= len(tasks) {
+		tasks = nil
+	}
+	if filter.Limit > 0 && len(tasks) > filter.Limit {
+		tasks = tasks[:filter.Limit]
+	}
+
+	return &broker.ListTasksResult{Tasks: tasks, Total: total}, nil
+}
+
+// listTasksFromStatePipelineIndex reads the two-dimensional state×pipeline
+// index directly. Used whenever both State and PipelineID filters are set.
+func (r *RedisStore) listTasksFromStatePipelineIndex(ctx context.Context, filter broker.TaskFilter) (*broker.ListTasksResult, error) {
+	key := r.statePipelineIndexKey(*filter.State, *filter.PipelineID)
+
+	taskIDs, err := r.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     key,
+		Start:   "-inf",
+		Stop:    "+inf",
+		ByScore: true,
+		Count:   -1,
+	}).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: zrange state×pipeline index: %w", err)
 	}
 
 	now := time.Now()
