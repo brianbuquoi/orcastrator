@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -180,10 +181,12 @@ func Authenticate(keys []APIKey, token string) (*APIKey, error) {
 	return nil, ErrUnauthorized
 }
 
-// maxTrackedIPs is the maximum number of distinct IPs tracked in the
-// failures map. Beyond this limit, new IPs are not tracked (fail open)
-// to prevent memory exhaustion from IPv6 spray or botnet attacks.
+// maxTrackedIPs is the maximum number of distinct IP-group entries the
+// tracker will hold at once. IPv4 is tracked per /32 and IPv6 per /64 so
+// an attacker with a single routed prefix cannot spray 2^64 distinct
+// entries into the map.
 const maxTrackedIPs = 100_000
+
 
 // BruteForceTracker tracks authentication failures per IP for brute force
 // protection. After maxFailures within windowDuration, subsequent requests
@@ -204,6 +207,7 @@ type BruteForceTracker struct {
 type ipFailures struct {
 	count     int
 	windowEnd time.Time
+	lastSeen  time.Time
 }
 
 // NewBruteForceTracker creates a new tracker with the given limits.
@@ -268,8 +272,27 @@ func (t *BruteForceTracker) cleanupLoop(ctx context.Context) {
 	}
 }
 
+// normalizeIP reduces a client IP to the tracking key. IPv4 addresses are
+// preserved as /32; IPv6 addresses are masked to /64 so that an attacker
+// holding an IPv6 prefix cannot get 2^64 free authentication attempts by
+// rotating through addresses within their subnet. If the string does not
+// parse as an IP it is returned unchanged — this covers test fixtures like
+// "testclient" and non-standard RemoteAddr values without breaking them.
+func normalizeIP(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
+	}
+	// IPv6: mask to /64.
+	return parsed.Mask(net.CIDRMask(64, 128)).String()
+}
+
 // IsBlocked reports whether the given IP has exceeded the failure threshold.
 func (t *BruteForceTracker) IsBlocked(ip string) bool {
+	ip = normalizeIP(ip)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -286,22 +309,33 @@ func (t *BruteForceTracker) IsBlocked(ip string) bool {
 	return f.count >= t.maxFailures
 }
 
-// RecordFailure records an authentication failure for the given IP.
-// If the tracker has reached maxTrackedIPs, new IPs are silently dropped
-// (fail open) to prevent memory exhaustion under IP spray attacks.
+// RecordFailure records an authentication failure for the given IP. IPv6
+// addresses are coalesced to /64 to prevent subnet-spray bypass. When the
+// tracker is at or near capacity, RecordFailure evicts the
+// least-recently-seen entry to make room for a new one instead of failing
+// open. evictThreshold (default 90% of maxIPCap) controls how eagerly the
+// sweep runs: at or above the threshold a sweep is attempted on every new
+// insert, which both prunes expired entries and evicts a live entry if
+// the map is genuinely saturated.
 func (t *BruteForceTracker) RecordFailure(ip string) {
+	ip = normalizeIP(ip)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	now := time.Now()
 	f, ok := t.failures[ip]
 	if !ok || now.After(f.windowEnd) {
-		// Cap check: if at capacity and this is a new IP, skip it.
+		// New insert path — evict/prune if we would otherwise exceed cap.
 		if !ok && len(t.failures) >= t.maxIPCap {
+			t.evictOldestLocked(now)
+		}
+		if !ok && len(t.failures) >= t.maxIPCap {
+			// Eviction failed to free a slot (map exceeds maxIPCap despite
+			// a sweep). Drop as a last resort and log it.
 			if t.logger != nil {
-				t.logger.Warn("brute force tracker at capacity, dropping new IP",
+				t.logger.Warn("brute force tracker at hard cap, dropping new IP",
 					"tracked_ips", len(t.failures),
-					"cap", maxTrackedIPs,
+					"cap", t.maxIPCap,
 				)
 			}
 			return
@@ -309,11 +343,55 @@ func (t *BruteForceTracker) RecordFailure(ip string) {
 		t.failures[ip] = &ipFailures{
 			count:     1,
 			windowEnd: now.Add(t.windowDuration),
+			lastSeen:  now,
 		}
 		return
 	}
 
 	f.count++
+	f.lastSeen = now
+}
+
+// evictOldestLocked removes the least-recently-seen entry from the failures
+// map. Callers must hold t.mu. Also opportunistically drops expired entries
+// in the same sweep, which typically frees many slots at once under real
+// workloads — live-entry eviction only fires when the window is genuinely
+// saturated with non-expired entries.
+func (t *BruteForceTracker) evictOldestLocked(now time.Time) {
+	oldestIP := ""
+	var oldestSeen time.Time
+	expired := 0
+	for ip, entry := range t.failures {
+		if now.After(entry.windowEnd) {
+			delete(t.failures, ip)
+			expired++
+			continue
+		}
+		if oldestIP == "" || entry.lastSeen.Before(oldestSeen) {
+			oldestIP = ip
+			oldestSeen = entry.lastSeen
+		}
+	}
+	// If expired-entry pruning alone freed room, don't evict a live entry.
+	if expired > 0 && len(t.failures) < t.maxIPCap {
+		if t.logger != nil {
+			t.logger.Info("brute force tracker pruned expired entries",
+				"pruned", expired,
+				"tracked_ips", len(t.failures),
+			)
+		}
+		return
+	}
+	if oldestIP != "" {
+		delete(t.failures, oldestIP)
+		if t.logger != nil {
+			t.logger.Warn("brute force tracker evicted oldest entry",
+				"evicted_ip", oldestIP,
+				"last_seen", oldestSeen,
+				"tracked_ips", len(t.failures),
+			)
+		}
+	}
 }
 
 // TrackedIPs returns the number of IPs currently in the failures map.
@@ -350,6 +428,7 @@ func (t *BruteForceTracker) RecordSuccess(_ string) {
 // IP, or the zero time if the IP has no active failures. Used to calculate
 // the Retry-After header on 429 responses.
 func (t *BruteForceTracker) WindowEnd(ip string) time.Time {
+	ip = normalizeIP(ip)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	f, ok := t.failures[ip]

@@ -412,53 +412,91 @@ func TestBruteForceTracker_CleanupSweep(t *testing.T) {
 	}
 }
 
-func TestBruteForce_IPCapFailOpen(t *testing.T) {
-	// Test 8: Verify that when the IP cap is reached, new IPs fail open
-	// (are not blocked) to prevent memory exhaustion from causing a global DoS.
-
+// Replaces the old fail-open test. When the tracker reaches its soft
+// threshold, RecordFailure evicts the least-recently-seen entry rather
+// than silently dropping the new IP. This keeps brute-force protection
+// effective under sustained IP-spray past the 100k cap.
+func TestBruteForce_EvictsOldestAtCapacity(t *testing.T) {
 	var logBuf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	cap := 10
 	tracker := NewBruteForceTracker(3, time.Minute, WithMaxIPs(cap), WithLogger(logger))
 
-	// Fill the cap with 10 distinct IPs, each with enough failures to be blocked.
+	// Fill the cap with 10 distinct IPs, each blocked.
 	for i := 0; i < cap; i++ {
 		ip := fmt.Sprintf("10.0.0.%d", i)
 		for j := 0; j < 3; j++ {
 			tracker.RecordFailure(ip)
 		}
 	}
-
 	if got := tracker.TrackedIPs(); got != cap {
 		t.Fatalf("expected %d tracked IPs, got %d", cap, got)
 	}
 
-	// Record a failure for an 11th IP — should be silently dropped (fail open).
-	tracker.RecordFailure("192.168.1.1")
-
-	// The 11th IP must NOT be blocked (fail open).
-	if tracker.IsBlocked("192.168.1.1") {
-		t.Error("11th IP should NOT be blocked — fail-open behaviour expected when IP cap is reached")
+	// Add an 11th IP — the evict path should free a slot for it.
+	for j := 0; j < 3; j++ {
+		tracker.RecordFailure("192.168.1.1")
 	}
-
-	// Verify the 11th IP was not added to the map.
+	if !tracker.IsBlocked("192.168.1.1") {
+		t.Error("new IP should be tracked and blockable post-eviction (not fail-open)")
+	}
 	if got := tracker.TrackedIPs(); got != cap {
-		t.Errorf("expected %d tracked IPs (cap not exceeded), got %d", cap, got)
+		t.Errorf("expected tracker to stay at cap %d after eviction, got %d", cap, got)
+	}
+	if !strings.Contains(logBuf.String(), "evicted oldest entry") {
+		t.Errorf("expected eviction log line, got: %s", logBuf.String())
+	}
+}
+
+// IPv6 tracking must coalesce addresses to /64 so an attacker with a
+// single routed prefix cannot spray 2^64 distinct addresses past the
+// failure threshold.
+func TestBruteForce_IPv6SharedPrefix(t *testing.T) {
+	tracker := NewBruteForceTracker(3, time.Minute)
+
+	// Two addresses in the same /64 prefix.
+	addrA := "2001:db8:1234:5678::1"
+	addrB := "2001:db8:1234:5678:dead:beef:cafe:babe"
+
+	// Three failures across the two addresses should be enough to block
+	// both, because they share a /64 and therefore a failure counter.
+	tracker.RecordFailure(addrA)
+	tracker.RecordFailure(addrB)
+	tracker.RecordFailure(addrA)
+
+	if !tracker.IsBlocked(addrA) {
+		t.Error("addrA should be blocked after 3 failures in the /64")
+	}
+	if !tracker.IsBlocked(addrB) {
+		t.Error("addrB (same /64 as addrA) should also appear blocked")
 	}
 
-	// Verify a warning log was emitted when the cap was hit.
-	logOutput := logBuf.String()
-	if !strings.Contains(logOutput, "brute force tracker at capacity") {
-		t.Error("expected warning log about IP cap being reached")
+	// An address in a different /64 must not be affected.
+	other := "2001:db8:1234:9999::1"
+	if tracker.IsBlocked(other) {
+		t.Error("address in a different /64 must not be blocked by shared-prefix failures")
 	}
+	if got := tracker.TrackedIPs(); got != 1 {
+		t.Errorf("expected 1 tracked /64 entry, got %d", got)
+	}
+}
 
-	// Verify the original 10 IPs are still tracked and blocked.
-	for i := 0; i < cap; i++ {
-		ip := fmt.Sprintf("10.0.0.%d", i)
-		if !tracker.IsBlocked(ip) {
-			t.Errorf("original IP %s should still be blocked", ip)
-		}
+// IPv4 must continue to be tracked per address (no subnetting).
+func TestBruteForce_IPv4TrackedPerAddress(t *testing.T) {
+	tracker := NewBruteForceTracker(3, time.Minute)
+
+	// Two addresses in the same /24 — must be tracked independently.
+	tracker.RecordFailure("10.0.0.1")
+	tracker.RecordFailure("10.0.0.2")
+	tracker.RecordFailure("10.0.0.1")
+	tracker.RecordFailure("10.0.0.1")
+
+	if !tracker.IsBlocked("10.0.0.1") {
+		t.Error("10.0.0.1 should be blocked after 3 failures")
+	}
+	if tracker.IsBlocked("10.0.0.2") {
+		t.Error("10.0.0.2 should not be blocked — IPv4 is tracked per /32")
 	}
 }
 
