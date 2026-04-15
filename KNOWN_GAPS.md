@@ -378,6 +378,8 @@ without a total count.
 | — | ws-token issuance and rejection logs omit `client_ip`, making incident triage slow | Low | Both logs now carry `client_ip` via the existing `clientIP(r)` helper; token values still never logged; consumption (DEBUG) intentionally unchanged |
 | — | `failed` field uses `omitempty` on bulk dead-letter responses, collapsing zero-failures with field-absent wire shape | Low | `failed` no longer has `omitempty` on `replayAllResponse`/`discardAllResponse`; `"failed": 0` is always present so callers can distinguish "no failures" from an older server |
 | — | `internal/store/mock` has no import-path signal that it is test-only | Low | Package moved to `internal/testutil/storemock` with explicit `Do not import this package in production code` package doc; sole importer (`internal/api/dead_letter_test.go`) updated |
+| — | replay-all `failed` count may exceed distinct failing task IDs because rolled-back tasks reappear on subsequent pages and are retried | Low | `handleReplayAllDeadLetter` now tracks a `failedIDs` set (mirroring `discard-all`) and skips already-failed IDs on subsequent pages; `failed` is now `len(failedIDs)` — exact distinct-task count. Test `TestReplayAll_PerTaskFailure` tightened to assert `Failed == 2` and new `TestReplayAll_RollbackDoesNotInflateCount` added |
+| — | CLI `replay-all` confirmation prompt understates total when dead-letter set exceeds 1000 tasks | Low | CLI now calls `ListTasks` with `Limit: 1` and reads `result.Total` for an accurate count before prompting; handles empty set (no prompt) and counts exceeding `maxBulkOperationTasks` (100000) with an explicit ceiling warning |
 
 ---
 

@@ -799,15 +799,21 @@ func TestReplayAll_PerTaskFailure(t *testing.T) {
 	if resp.Processed != 3 {
 		t.Errorf("processed: got %d want 3", resp.Processed)
 	}
-	// Each iteration of the loop retries the rolled-back tasks until they
-	// all fail on the same page (no progress → break). So the 2 failing
-	// tasks register >= 2 failures but the 3 successful ones leave the
-	// filter immediately. Require at least 2.
-	if resp.Failed < 2 {
-		t.Errorf("failed: got %d want >= 2", resp.Failed)
+	if resp.Failed != 2 {
+		t.Errorf("failed: got %d want 2", resp.Failed)
 	}
 	if resp.Truncated {
 		t.Errorf("truncated: got true want false")
+	}
+
+	// Each failing task ID must appear in the Warn log exactly once —
+	// confirming the failedIDs guard prevented retries across pages.
+	for i := 0; i <= 1; i++ {
+		id := ids[i]
+		occurrences := strings.Count(logBuf.String(), `"task_id":"`+id+`"`)
+		if occurrences != 1 {
+			t.Errorf("failing task %s logged %d times, want 1", id, occurrences)
+		}
 	}
 
 	// The 3 successful originals must be REPLAYED; the 2 failing originals
@@ -843,10 +849,84 @@ func TestReplayAll_PerTaskFailure(t *testing.T) {
 		t.Errorf("rolled back count: got %d want 2", rolledBack)
 	}
 
-	// At least 2 Warn lines should be emitted for the failed submits.
+	// Exactly 2 Warn lines for the failed submits — one per failing task, no retries.
 	warnCount := strings.Count(logBuf.String(), `"msg":"replay-all: failed to submit replay task"`)
-	if warnCount < 2 {
-		t.Errorf("replay-all warn log lines: got %d want >= 2 (logs: %s)", warnCount, logBuf.String())
+	if warnCount != 2 {
+		t.Errorf("replay-all warn log lines: got %d want 2 (logs: %s)", warnCount, logBuf.String())
+	}
+}
+
+// TestReplayAll_RollbackDoesNotInflateCount verifies that when a failed
+// submit rolls back and the task reappears on subsequent pages, replay-all's
+// failedIDs set prevents retrying and double-counting the task.
+func TestReplayAll_RollbackDoesNotInflateCount(t *testing.T) {
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	mstore := mock.New()
+	srv, b := newDeadLetterTestServerWithStore(t, mstore, logger)
+	defer srv.Shutdown(context.Background())
+
+	ids := seedDeadLetterTasksInStore(t, b, mstore.Memory(), 3)
+	if len(ids) != 3 {
+		t.Fatalf("seeded %d tasks, want 3", len(ids))
+	}
+	failingID := ids[0]
+
+	mem := mstore.Memory()
+	mstore.OnEnqueueTask = func(ctx context.Context, stageID string, task *broker.Task) error {
+		if strings.Contains(string(task.Payload), `"fail-0"`) {
+			return mock.ErrInjected
+		}
+		return mem.EnqueueTask(ctx, stageID, task)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/dead-letter/replay-all?pipeline_id=test-pipeline", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status: got %d want 202: %s", w.Code, w.Body.String())
+	}
+	var resp replayAllResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Processed != 2 {
+		t.Errorf("processed: got %d want 2", resp.Processed)
+	}
+	if resp.Failed != 1 {
+		t.Errorf("failed: got %d want 1 (distinct failing task)", resp.Failed)
+	}
+	if resp.Truncated {
+		t.Errorf("truncated: got true want false")
+	}
+
+	// Failing task should be logged exactly once — the failedIDs guard
+	// prevents retries on subsequent page fetches.
+	occurrences := strings.Count(logBuf.String(), `"task_id":"`+failingID+`"`)
+	if occurrences != 1 {
+		t.Errorf("failing task %s logged %d times, want 1 (logs: %s)", failingID, occurrences, logBuf.String())
+	}
+
+	ctx := context.Background()
+	fail, err := mem.GetTask(ctx, failingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fail.State != broker.TaskStateFailed || !fail.RoutedToDeadLetter {
+		t.Errorf("failing task: got state=%s dl=%v; want FAILED+DL=true",
+			fail.State, fail.RoutedToDeadLetter)
+	}
+
+	for _, id := range ids[1:] {
+		tk, err := mem.GetTask(ctx, id)
+		if err != nil {
+			t.Fatalf("get %s: %v", id, err)
+		}
+		if tk.State != broker.TaskStateReplayed {
+			t.Errorf("task %s: got state=%s want REPLAYED", id, tk.State)
+		}
 	}
 }
 

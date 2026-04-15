@@ -1481,6 +1481,21 @@ func deadLetterReplayCmd() *cobra.Command {
 	return cmd
 }
 
+// replayAllConfirmMessage returns the interactive confirmation prompt shown
+// before replay-all runs. It reports the accurate total dead-letter count and
+// warns the operator explicitly when the count exceeds the per-invocation
+// ceiling so they can give informed consent.
+func replayAllConfirmMessage(total int, pipelineID string, maxBulk int) string {
+	if total > maxBulk {
+		return fmt.Sprintf(
+			"Found %d dead-lettered tasks for pipeline %q. Note: replay-all processes a maximum of %d tasks per invocation.\nReplay up to %d tasks? [y/N] ",
+			total, pipelineID, maxBulk, maxBulk)
+	}
+	return fmt.Sprintf(
+		"Found %d dead-lettered tasks for pipeline %q.\nReplay all %d tasks? [y/N] ",
+		total, pipelineID, total)
+}
+
 func deadLetterReplayAllCmd() *cobra.Command {
 	var configPath string
 	var pipelineID string
@@ -1504,28 +1519,27 @@ func deadLetterReplayAllCmd() *cobra.Command {
 			deadLetter := true
 			failedState := broker.TaskStateFailed
 
-			// Peek at the list first so we can prompt the operator. Use a
-			// bounded list solely for the confirmation message; the actual
-			// replay loop paginates via repeated offset=0 fetches since
-			// ClaimForReplay flips RoutedToDeadLetter and drops items out
-			// of the filter.
-			peek, err := b.Store().ListTasks(cmd.Context(), broker.TaskFilter{
+			const maxBulk = 100000
+
+			// Fetch only the total count (Limit: 1) so the confirmation prompt
+			// reflects the true dead-letter set size instead of a capped peek.
+			countResult, err := b.Store().ListTasks(cmd.Context(), broker.TaskFilter{
 				PipelineID:         &pipelineID,
 				State:              &failedState,
 				RoutedToDeadLetter: &deadLetter,
-				Limit:              1000,
+				Limit:              1,
 			})
 			if err != nil {
 				return err
 			}
 
-			if len(peek.Tasks) == 0 {
+			if countResult.Total == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No dead-lettered tasks found.")
 				return nil
 			}
 
 			if !yes {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Replay %d dead-lettered tasks for pipeline %q? [y/N] ", len(peek.Tasks), pipelineID)
+				fmt.Fprint(cmd.ErrOrStderr(), replayAllConfirmMessage(countResult.Total, pipelineID, maxBulk))
 				var input string
 				fmt.Fscanln(os.Stdin, &input)
 				if strings.ToLower(input) != "y" {
@@ -1534,7 +1548,6 @@ func deadLetterReplayAllCmd() *cobra.Command {
 				}
 			}
 
-			const maxBulk = 100000
 			count := 0
 			failed := 0
 			for count < maxBulk {

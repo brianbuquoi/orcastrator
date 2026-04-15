@@ -1132,3 +1132,80 @@ func TestCLIReplay_ConcurrentSingleWinner(t *testing.T) {
 		t.Fatalf("expected %d NotReplayable losers, got %d", N-1, losses)
 	}
 }
+
+// TestCLIReplayAll_ConfirmationAccurate verifies the confirmation prompt
+// reports the accurate dead-letter total (via ListTasks Total) rather than a
+// capped peek size, and handles the ceiling-exceeded case explicitly.
+func TestCLIReplayAll_ConfirmationAccurate(t *testing.T) {
+	cases := []struct {
+		name     string
+		total    int
+		max      int
+		wantSubs []string
+		noSubs   []string
+	}{
+		{
+			name:     "small",
+			total:    3,
+			max:      100000,
+			wantSubs: []string{"Found 3 dead-lettered tasks", "Replay all 3 tasks?"},
+			noSubs:   []string{"maximum of"},
+		},
+		{
+			name:     "over-1000",
+			total:    4721,
+			max:      100000,
+			wantSubs: []string{"Found 4721 dead-lettered tasks", "Replay all 4721 tasks?"},
+			noSubs:   []string{"maximum of"},
+		},
+		{
+			name:     "over-ceiling",
+			total:    142000,
+			max:      100000,
+			wantSubs: []string{"Found 142000 dead-lettered tasks", "maximum of 100000", "Replay up to 100000 tasks?"},
+			noSubs:   []string{"Replay all 142000"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := replayAllConfirmMessage(tc.total, "test-pipeline", tc.max)
+			for _, s := range tc.wantSubs {
+				if !strings.Contains(got, s) {
+					t.Errorf("prompt missing %q; got: %s", s, got)
+				}
+			}
+			for _, s := range tc.noSubs {
+				if strings.Contains(got, s) {
+					t.Errorf("prompt should not contain %q; got: %s", s, got)
+				}
+			}
+		})
+	}
+}
+
+// TestCLIReplayAll_EmptySet verifies that replay-all exits cleanly without
+// prompting when no dead-lettered tasks are present.
+func TestCLIReplayAll_EmptySet(t *testing.T) {
+	configPath := writeTestYAML(t)
+
+	root := rootCmd()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{
+		"dead-letter", "replay-all",
+		"--config", configPath,
+		"--pipeline", "test-pipeline",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "No dead-lettered tasks found.") {
+		t.Errorf("stdout missing empty-set message; got: %q", stdout.String())
+	}
+	// No confirmation prompt should be emitted on stderr when the set is empty.
+	if strings.Contains(stderr.String(), "Replay") {
+		t.Errorf("stderr should not contain confirmation prompt when set is empty; got: %q", stderr.String())
+	}
+}

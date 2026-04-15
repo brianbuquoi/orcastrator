@@ -505,10 +505,11 @@ func (s *Server) handleReplayAllDeadLetter(w http.ResponseWriter, r *http.Reques
 	}
 
 	count := 0
-	failed := 0
 	truncated := false
-	// ClaimForReplay flips RoutedToDeadLetter to false, so claimed tasks
-	// do not reappear on subsequent pages. No failedIDs guard is needed here.
+	// failedIDs tracks task IDs that have already failed so that tasks
+	// which reappear on subsequent pages (because RollbackReplayClaim
+	// restored them to dead-letter status) are not retried or double-counted.
+	failedIDs := make(map[string]struct{})
 	for count < maxBulkOperationTasks {
 		// Successfully replayed tasks drop out of the filter because the
 		// claim flipped RoutedToDeadLetter. We fetch offset=0 each iteration.
@@ -531,6 +532,12 @@ func (s *Server) handleReplayAllDeadLetter(w http.ResponseWriter, r *http.Reques
 				truncated = true
 				break
 			}
+			if _, already := failedIDs[task.ID]; already {
+				continue
+			}
+			// Unlike discard-all, a failed replay rolls back the claim (restoring
+			// RoutedToDeadLetter=true), so the task can reappear on subsequent pages.
+			// failedIDs prevents retrying and double-counting these tasks.
 			claimed, err := s.broker.Store().ClaimForReplay(r.Context(), task.ID)
 			if err != nil {
 				// Concurrent claim or state drift — log and move on so a
@@ -540,7 +547,7 @@ func (s *Server) handleReplayAllDeadLetter(w http.ResponseWriter, r *http.Reques
 					"pipeline_id", task.PipelineID,
 					"error", err.Error(),
 				)
-				failed++
+				failedIDs[task.ID] = struct{}{}
 				continue
 			}
 			if _, err := s.broker.Submit(r.Context(), claimed.PipelineID, claimed.Payload); err != nil {
@@ -556,7 +563,7 @@ func (s *Server) handleReplayAllDeadLetter(w http.ResponseWriter, r *http.Reques
 						"rollback_error", rbErr.Error(),
 					)
 				}
-				failed++
+				failedIDs[task.ID] = struct{}{}
 				continue
 			}
 			replayed := broker.TaskStateReplayed
@@ -584,7 +591,7 @@ func (s *Server) handleReplayAllDeadLetter(w http.ResponseWriter, r *http.Reques
 		)
 	}
 
-	writeJSON(w, http.StatusAccepted, replayAllResponse{Processed: count, Failed: failed, Truncated: truncated})
+	writeJSON(w, http.StatusAccepted, replayAllResponse{Processed: count, Failed: len(failedIDs), Truncated: truncated})
 }
 
 func (s *Server) handleDiscardAllDeadLetter(w http.ResponseWriter, r *http.Request) {
