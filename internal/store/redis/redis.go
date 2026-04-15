@@ -103,12 +103,6 @@ func (r *RedisStore) statePipelineIndexKey(state broker.TaskState, pipelineID st
 	return fmt.Sprintf("%stasks:state:%s:pipeline:%s", r.prefix, string(state), pipelineID)
 }
 
-// statePipelineIndexPrefix returns the prefix for scanning all pipeline
-// indexes for a given state.
-func (r *RedisStore) statePipelineIndexPrefix(state broker.TaskState) string {
-	return fmt.Sprintf("%stasks:state:%s:pipeline:", r.prefix, string(state))
-}
-
 func (r *RedisStore) EnqueueTask(ctx context.Context, stageID string, task *broker.Task) error {
 	data, err := json.Marshal(task)
 	if err != nil {
