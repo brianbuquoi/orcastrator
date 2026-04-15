@@ -1,0 +1,303 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// writeExecTestYAML writes an ollama-backed infra+pipeline config that
+// points at the provided httptest server. Returns the config path.
+func writeExecTestYAML(t *testing.T, ollamaURL string) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	schemas := map[string]string{
+		"in_v1.json":  `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"request":{"type":"string"}},"required":["request"]}`,
+		"out_v1.json": `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"response":{"type":"string"}},"required":["response"]}`,
+	}
+	schemasDir := filepath.Join(dir, "schemas")
+	os.MkdirAll(schemasDir, 0o755)
+	for name, content := range schemas {
+		if err := os.WriteFile(filepath.Join(schemasDir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	yaml := `version: "1"
+
+schema_registry:
+  - name: task_in
+    version: "v1"
+    path: schemas/in_v1.json
+  - name: task_out
+    version: "v1"
+    path: schemas/out_v1.json
+
+pipelines:
+  - name: test-pipeline
+    concurrency: 1
+    store: memory
+    stages:
+      - id: process
+        agent: test-agent
+        input_schema:
+          name: task_in
+          version: "v1"
+        output_schema:
+          name: task_out
+          version: "v1"
+        timeout: 5s
+        retry:
+          max_attempts: 1
+          backoff: fixed
+          base_delay: 50ms
+        on_success: done
+        on_failure: dead-letter
+
+agents:
+  - id: test-agent
+    provider: ollama
+    model: llama3
+    system_prompt: "test"
+    temperature: 0.0
+    max_tokens: 1024
+    timeout: 5s
+
+stores:
+  memory:
+    max_tasks: 1000
+`
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OLLAMA_ENDPOINT", ollamaURL)
+	return configPath
+}
+
+// ollamaEchoServer returns a mock ollama /api/chat endpoint that responds
+// with the given content (JSON) as the assistant's reply.
+func ollamaServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func ollamaOKResponse(content string) string {
+	return fmt.Sprintf(`{"message":{"role":"assistant","content":%q},"prompt_eval_count":1,"eval_count":1}`, content)
+}
+
+func runExecCmd(t *testing.T, args ...string) (exitCode int, stdout, stderr string) {
+	t.Helper()
+	root := rootCmd()
+	root.SetArgs(append([]string{"exec"}, args...))
+	var outBuf, errBuf bytes.Buffer
+	root.SetOut(&outBuf)
+	root.SetErr(&errBuf)
+
+	err := root.Execute()
+	if err == nil {
+		return 0, outBuf.String(), errBuf.String()
+	}
+	var ee *execExitError
+	if errors.As(err, &ee) {
+		return ee.code, outBuf.String(), errBuf.String()
+	}
+	return 1, outBuf.String(), errBuf.String()
+}
+
+func TestExec_HappyPath(t *testing.T) {
+	srv := ollamaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(ollamaOKResponse(`{"response":"hello"}`)))
+	})
+	cfg := writeExecTestYAML(t, srv.URL)
+
+	code, stdout, stderr := runExecCmd(t,
+		"--config", cfg,
+		"--id", "test-pipeline",
+		"--payload", `{"request":"hi"}`,
+		"--timeout", "10s",
+	)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"response"`) {
+		t.Errorf("expected payload on stdout, got: %s", stdout)
+	}
+	if !strings.Contains(stderr, "Completed") {
+		t.Errorf("expected progress output on stderr, got: %s", stderr)
+	}
+}
+
+func TestExec_TaskFails(t *testing.T) {
+	srv := ollamaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// 400 is non-retryable → task fails after max_attempts
+		http.Error(w, "bad request", http.StatusBadRequest)
+	})
+	cfg := writeExecTestYAML(t, srv.URL)
+
+	code, _, stderr := runExecCmd(t,
+		"--config", cfg,
+		"--id", "test-pipeline",
+		"--payload", `{"request":"hi"}`,
+		"--timeout", "10s",
+	)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d\nstderr: %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "dead-letter") && !strings.Contains(stderr, "FAILED") {
+		t.Errorf("expected dead-letter or FAILED marker on stderr, got: %s", stderr)
+	}
+}
+
+func TestExec_Timeout(t *testing.T) {
+	srv := ollamaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(3 * time.Second)
+		w.Write([]byte(ollamaOKResponse(`{"response":"late"}`)))
+	})
+	cfg := writeExecTestYAML(t, srv.URL)
+
+	code, _, stderr := runExecCmd(t,
+		"--config", cfg,
+		"--id", "test-pipeline",
+		"--payload", `{"request":"hi"}`,
+		"--timeout", "500ms",
+	)
+	if code != 2 {
+		t.Fatalf("expected exit 2 (timeout), got %d\nstderr: %s", code, stderr)
+	}
+}
+
+func TestExec_OutputJSON(t *testing.T) {
+	srv := ollamaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(ollamaOKResponse(`{"response":"ok"}`)))
+	})
+	cfg := writeExecTestYAML(t, srv.URL)
+
+	code, stdout, _ := runExecCmd(t,
+		"--config", cfg,
+		"--id", "test-pipeline",
+		"--payload", `{"request":"hi"}`,
+		"--output", "json",
+		"--quiet",
+		"--timeout", "10s",
+	)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	// stdout must be parseable JSON only (no "Result (stage…)" header).
+	if strings.Contains(stdout, "Result") {
+		t.Errorf("--output json --quiet should not print Result header, got: %s", stdout)
+	}
+	var v map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &v); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, stdout)
+	}
+	if v["response"] != "ok" {
+		t.Errorf("unexpected payload: %v", v)
+	}
+}
+
+func TestExec_PayloadFromFile(t *testing.T) {
+	srv := ollamaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(ollamaOKResponse(`{"response":"ok"}`)))
+	})
+	cfg := writeExecTestYAML(t, srv.URL)
+
+	dir := t.TempDir()
+	payloadFile := filepath.Join(dir, "payload.json")
+	if err := os.WriteFile(payloadFile, []byte(`{"request":"from-file"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr := runExecCmd(t,
+		"--config", cfg,
+		"--id", "test-pipeline",
+		"--payload", "@"+payloadFile,
+		"--timeout", "10s",
+	)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d\nstderr: %s", code, stderr)
+	}
+}
+
+// TestExec_PipelineFileFlag: infra config + separate pipeline file.
+func TestExec_PipelineFileFlag(t *testing.T) {
+	srv := ollamaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(ollamaOKResponse(`{"response":"ok"}`)))
+	})
+
+	dir := t.TempDir()
+	schemasDir := filepath.Join(dir, "schemas")
+	os.MkdirAll(schemasDir, 0o755)
+	in := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"request":{"type":"string"}},"required":["request"]}`
+	out := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"response":{"type":"string"}},"required":["response"]}`
+	os.WriteFile(filepath.Join(schemasDir, "in.json"), []byte(in), 0o644)
+	os.WriteFile(filepath.Join(schemasDir, "out.json"), []byte(out), 0o644)
+
+	infra := `version: "1"
+agents:
+  - id: test-agent
+    provider: ollama
+    model: llama3
+    system_prompt: "t"
+    timeout: 5s
+stores:
+  memory:
+    max_tasks: 100
+`
+	infraPath := filepath.Join(dir, "infra.yaml")
+	os.WriteFile(infraPath, []byte(infra), 0o644)
+
+	pipe := `version: "1"
+schema_registry:
+  - name: task_in
+    version: "v1"
+    path: schemas/in.json
+  - name: task_out
+    version: "v1"
+    path: schemas/out.json
+pipelines:
+  - name: split-pipe
+    concurrency: 1
+    store: memory
+    stages:
+      - id: process
+        agent: test-agent
+        input_schema: { name: task_in, version: "v1" }
+        output_schema: { name: task_out, version: "v1" }
+        timeout: 5s
+        retry: { max_attempts: 1, backoff: fixed, base_delay: 50ms }
+        on_success: done
+        on_failure: dead-letter
+`
+	pipePath := filepath.Join(dir, "pipe.yaml")
+	os.WriteFile(pipePath, []byte(pipe), 0o644)
+
+	t.Setenv("OLLAMA_ENDPOINT", srv.URL)
+
+	code, stdout, stderr := runExecCmd(t,
+		"--config", infraPath,
+		"--pipeline", pipePath,
+		"--id", "split-pipe",
+		"--payload", `{"request":"hi"}`,
+		"--timeout", "10s",
+	)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d\nstderr: %s\nstdout: %s", code, stderr, stdout)
+	}
+	if !strings.Contains(stdout, `"response"`) {
+		t.Errorf("expected response payload on stdout, got: %s", stdout)
+	}
+}

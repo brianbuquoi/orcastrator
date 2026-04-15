@@ -1,0 +1,29 @@
+# Infra-only config. Defines store + agent credentials; pipelines live
+# in separate files merged at runtime via --pipeline-file (submit) or
+# --pipeline (exec).
+version: "1"
+
+agents:
+  - id: claude-reviewer
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    auth:
+      api_key_env: ANTHROPIC_API_KEY
+    system_prompt: "You review code for correctness, security, and style."
+    temperature: 0.0
+    max_tokens: 4096
+    timeout: 60s
+
+  - id: gpt-fixer
+    provider: openai
+    model: gpt-4o
+    auth:
+      api_key_env: OPENAI_API_KEY
+    system_prompt: "You fix code issues reported by a reviewer."
+    temperature: 0.0
+    max_tokens: 4096
+    timeout: 60s
+
+stores:
+  memory:
+    max_tasks: 10000

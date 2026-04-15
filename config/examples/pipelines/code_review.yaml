@@ -1,0 +1,51 @@
+# Standalone pipeline file. Merge with an infra config via:
+#   overlord exec --config ./infra.yaml \
+#                 --pipeline ./pipelines/code_review.yaml \
+#                 --id code-review-loop \
+#                 --payload @./input.json
+version: "1"
+
+schema_registry:
+  - name: code_submission
+    version: "v1"
+    path: ../../../schemas/code_submission_v1.json
+  - name: review_result
+    version: "v1"
+    path: ../../../schemas/review_result_v1.json
+
+pipelines:
+  - name: code-review-loop
+    concurrency: 1
+    store: memory
+    stages:
+      - id: review
+        agent: claude-reviewer
+        input_schema:
+          name: code_submission
+          version: "v1"
+        output_schema:
+          name: review_result
+          version: "v1"
+        timeout: 60s
+        retry:
+          max_attempts: 3
+          backoff: exponential
+          base_delay: 1s
+        on_success: fix
+        on_failure: dead-letter
+
+      - id: fix
+        agent: gpt-fixer
+        input_schema:
+          name: review_result
+          version: "v1"
+        output_schema:
+          name: code_submission
+          version: "v1"
+        timeout: 60s
+        retry:
+          max_attempts: 3
+          backoff: exponential
+          base_delay: 1s
+        on_success: done
+        on_failure: dead-letter

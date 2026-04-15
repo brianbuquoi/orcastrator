@@ -64,6 +64,28 @@ Install:
 go install github.com/brianbuquoi/overlord/cmd/overlord@latest
 ```
 
+Overlord splits configuration into two files: an **infra config** (store +
+agent credentials — stable across pipelines) and a **pipeline file** (topology
+and schemas — iterate freely). They are combined at runtime. If you prefer,
+both blocks can also live in a single file.
+
+Create `infra.yaml`:
+
+```yaml
+version: "1"
+
+agents:
+  - id: claude
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    auth: { api_key_env: ANTHROPIC_API_KEY }
+    system_prompt: "You are a helpful assistant."
+    timeout: 30s
+
+stores:
+  memory: { max_tasks: 10000 }
+```
+
 Create `pipeline.yaml`:
 
 ```yaml
@@ -90,19 +112,6 @@ pipelines:
         retry: { max_attempts: 2, backoff: exponential, base_delay: 1s }
         on_success: done
         on_failure: dead-letter
-
-agents:
-  - id: claude
-    provider: anthropic
-    model: claude-sonnet-4-20250514
-    auth: { api_key_env: ANTHROPIC_API_KEY }
-    system_prompt: "You are a helpful assistant."
-    temperature: 0.3
-    max_tokens: 1024
-    timeout: 30s
-
-stores:
-  memory: { max_tasks: 10000 }
 ```
 
 Create minimal schemas (`input_schema.json` and `output_schema.json`):
@@ -111,26 +120,69 @@ Create minimal schemas (`input_schema.json` and `output_schema.json`):
 { "type": "object" }
 ```
 
-Run:
+Run a single task:
 
 ```bash
 export ANTHROPIC_API_KEY=your-key-here
 
-# Validate config
-overlord validate --config pipeline.yaml
-
-# Start the engine
-overlord run --config pipeline.yaml
-
-# In another terminal — submit a task
-overlord submit --config pipeline.yaml --pipeline hello \
+overlord exec \
+  --config ./infra.yaml \
+  --pipeline ./pipeline.yaml \
+  --id hello \
   --payload '{"request": "Say hello"}'
 ```
 
+`overlord exec` runs one task through the pipeline and exits — no HTTP
+server, no port binding. Progress is printed to stderr; the final result
+is written to stdout, so you can pipe it into other tools:
+
+```
+infra.yaml + pipeline.yaml
+         ↓
+  overlord exec --config infra.yaml --pipeline pipeline.yaml --id hello --payload '{…}'
+         ↓
+  progress → stderr
+  result   → stdout   (e.g. | jq .response > out.txt)
+```
+
+For long-running, multi-task deployments use `overlord run` instead — it
+starts the HTTP API, web dashboard, and broker workers. See
+[docs/exec.md](docs/exec.md) for the exec command reference and
+[docs/deployment.md](docs/deployment.md) for server-mode operations.
+
 ## Configuration reference
 
-See [`config/examples/`](config/examples/) for complete pipeline examples and
-[`CLAUDE.md`](CLAUDE.md) for the full YAML schema specification.
+Overlord configs can be split across two files or combined in one. The split
+lets you keep stable infrastructure settings (store, agent credentials) in
+one place and iterate on pipeline topology independently.
+
+| File | Purpose | Contains |
+|------|---------|----------|
+| Infra config | Stable per-deployment | `agents`, `stores`, `auth`, `observability` |
+| Pipeline file | Iterated per workflow | `schema_registry`, `pipelines` |
+
+Both files use the same `version` field. Merge happens at runtime — the
+pipeline file is read, its schemas and pipelines are added to the infra
+config, and every agent reference is verified against the infra agents.
+
+```bash
+# Split configs:
+overlord exec --config ./infra.yaml --pipeline ./pipeline.yaml \
+  --id my-pipe --payload '{…}'
+
+overlord submit --config ./infra.yaml --pipeline-file ./pipeline.yaml \
+  --pipeline my-pipe --payload '{…}' --wait
+
+# Single combined file still works everywhere:
+overlord exec --config ./everything.yaml --id my-pipe --payload '{…}'
+overlord run  --config ./everything.yaml
+```
+
+See [`config/examples/infra.yaml`](config/examples/infra.yaml) and
+[`config/examples/pipelines/code_review.yaml`](config/examples/pipelines/code_review.yaml)
+for the split pattern, or [`config/examples/`](config/examples/) for
+combined-file examples. [`CLAUDE.md`](CLAUDE.md) documents the full YAML
+schema.
 
 Key top-level blocks:
 

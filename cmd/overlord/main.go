@@ -62,6 +62,13 @@ func main() {
 	root := rootCmd()
 	registerCompletions(root)
 	if err := root.Execute(); err != nil {
+		var ee *execExitError
+		if errors.As(err, &ee) {
+			if ee.msg != "" && ee.code != execExitFailed {
+				fmt.Fprintln(os.Stderr, "Error:", ee.msg)
+			}
+			os.Exit(ee.code)
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
@@ -100,6 +107,7 @@ Quick start:
 	root.PersistentFlags().String("api-key", "", "API key for authenticated requests (or set OVERLORD_API_KEY)")
 
 	root.AddCommand(runCmd())
+	root.AddCommand(execCmd())
 	root.AddCommand(submitCmd())
 	root.AddCommand(statusCmd())
 	root.AddCommand(validateCmd())
@@ -438,6 +446,7 @@ func envOrDefault(key, fallback string) string {
 
 func submitCmd() *cobra.Command {
 	var configPath string
+	var pipelineFile string
 	var pipelineID string
 	var payload string
 	var wait bool
@@ -467,6 +476,16 @@ issues without consuming API quota.`,
 			cfg, err := loadConfig(configPath)
 			if err != nil {
 				return fmtConfigError(configPath, err)
+			}
+
+			if pipelineFile != "" {
+				pf, err := config.LoadPipelineFile(pipelineFile)
+				if err != nil {
+					return err
+				}
+				if err := pf.MergeInto(cfg); err != nil {
+					return err
+				}
 			}
 
 			// Parse payload: @file or inline JSON.
@@ -515,7 +534,8 @@ issues without consuming API quota.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "", "path to pipeline YAML config file")
+	cmd.Flags().StringVar(&configPath, "config", "", "path to infra (or combined) YAML config file")
+	cmd.Flags().StringVar(&pipelineFile, "pipeline-file", "", "optional path to a standalone pipeline definition file merged with --config")
 	cmd.Flags().StringVar(&pipelineID, "pipeline", "", "pipeline ID to submit to")
 	cmd.Flags().StringVar(&payload, "payload", "", "JSON payload or @file")
 	cmd.Flags().BoolVar(&wait, "wait", false, "poll until task completes")
