@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/brianbuquoi/overlord/internal/broker"
 	"github.com/brianbuquoi/overlord/internal/config"
+	"github.com/brianbuquoi/overlord/internal/store"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -79,8 +81,13 @@ type schemaRefJSON struct {
 }
 
 type healthResponse struct {
-	Status string            `json:"status"`
-	Agents map[string]string `json:"agents"`
+	Status string                 `json:"status"`
+	Agents map[string]agentHealth `json:"agents"`
+}
+
+type agentHealth struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
 }
 
 type errorResponse struct {
@@ -96,6 +103,12 @@ const maxRequestBodySize = 1 << 20
 
 // maxListLimit is the maximum allowed limit for ListTasks queries.
 const maxListLimit = 1000
+
+// maxBulkOperationTasks bounds replay-all and discard-all per-call so a
+// runaway operation cannot walk an unbounded dead-letter backlog. Callers
+// that hit the ceiling receive `"truncated": true` in the response and can
+// reissue the call to drain the remainder.
+const maxBulkOperationTasks = 100000
 
 func (s *Server) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 	pipelineID := pathParam(r.URL.Path, "/v1/pipelines/", "/tasks")
@@ -261,7 +274,7 @@ func (s *Server) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	agents := s.broker.Agents()
-	results := make(map[string]string, len(agents))
+	results := make(map[string]agentHealth, len(agents))
 	status := "ok"
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -269,6 +282,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+
+	logger := s.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 
 	for id, ag := range agents {
 		wg.Add(1)
@@ -278,10 +296,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				results[id] = "error: " + err.Error()
+				logger.Error("agent health check failed",
+					"agent_id", id,
+					"provider", ag.Provider(),
+					"error", err,
+				)
+				results[id] = agentHealth{Status: "error", Message: "health check failed"}
 				status = "degraded"
 			} else {
-				results[id] = "ok"
+				results[id] = agentHealth{Status: "ok"}
 			}
 		}(id, ag)
 	}
@@ -305,11 +328,13 @@ type replayResponse struct {
 }
 
 type replayAllResponse struct {
-	Count int `json:"count"`
+	Count     int  `json:"count"`
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 type discardAllResponse struct {
-	Count int `json:"count"`
+	Count     int  `json:"count"`
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 func (s *Server) handleListDeadLetter(w http.ResponseWriter, r *http.Request) {
@@ -368,18 +393,17 @@ func (s *Server) handleReplayDeadLetter(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	task, err := s.broker.Store().GetTask(r.Context(), taskID)
-	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			writeError(w, http.StatusNotFound, "task not found", "TASK_NOT_FOUND")
-			return
-		}
-		s.writeInternalError(w, r, http.StatusInternalServerError, "failed to fetch task", "GET_TASK_FAILED", err)
+	task, err := s.broker.Store().ClaimForReplay(r.Context(), taskID)
+	if errors.Is(err, store.ErrTaskNotFound) {
+		writeError(w, http.StatusNotFound, "task not found", "TASK_NOT_FOUND")
 		return
 	}
-
-	if !task.RoutedToDeadLetter || task.State != broker.TaskStateFailed {
-		writeError(w, http.StatusConflict, "task is not in dead-letter state", "NOT_DEAD_LETTERED")
+	if errors.Is(err, store.ErrTaskNotReplayable) {
+		writeError(w, http.StatusConflict, "task is not in a replayable state", "TASK_NOT_REPLAYABLE")
+		return
+	}
+	if err != nil {
+		s.writeInternalError(w, r, http.StatusInternalServerError, "failed to claim task for replay", "REPLAY_FAILED", err)
 		return
 	}
 
@@ -449,25 +473,54 @@ func (s *Server) handleReplayAllDeadLetter(w http.ResponseWriter, r *http.Reques
 
 	deadLetter := true
 	failedState := broker.TaskStateFailed
-	result, err := s.broker.Store().ListTasks(r.Context(), broker.TaskFilter{
-		PipelineID:         &pipelineID,
-		State:              &failedState,
-		RoutedToDeadLetter: &deadLetter,
-		Limit:              maxListLimit,
-	})
-	if err != nil {
-		s.writeInternalError(w, r, http.StatusInternalServerError, "failed to list dead-letter tasks", "LIST_DEAD_LETTER_FAILED", err)
-		return
+
+	// Replay leaves the original task in Failed+dead-letter state and submits
+	// a new PENDING task. Since items do not drop out of the filter, we
+	// advance the offset by the page size as we go.
+	logger := s.logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
 	count := 0
-	for _, task := range result.Tasks {
-		if _, err := s.broker.Submit(r.Context(), task.PipelineID, task.Payload); err == nil {
-			count++
+	offset := 0
+	truncated := false
+	for count < maxBulkOperationTasks {
+		page, err := s.broker.Store().ListTasks(r.Context(), broker.TaskFilter{
+			PipelineID:         &pipelineID,
+			State:              &failedState,
+			RoutedToDeadLetter: &deadLetter,
+			Limit:              maxListLimit,
+			Offset:             offset,
+		})
+		if err != nil {
+			s.writeInternalError(w, r, http.StatusInternalServerError, "failed to list dead-letter tasks", "LIST_DEAD_LETTER_FAILED", err)
+			return
 		}
+		if len(page.Tasks) == 0 {
+			break
+		}
+		for _, task := range page.Tasks {
+			if count >= maxBulkOperationTasks {
+				truncated = true
+				break
+			}
+			if _, err := s.broker.Submit(r.Context(), task.PipelineID, task.Payload); err == nil {
+				count++
+			}
+		}
+		offset += len(page.Tasks)
+	}
+	if count >= maxBulkOperationTasks {
+		truncated = true
+		logger.Warn("replay-all hit per-call ceiling",
+			"pipeline_id", pipelineID,
+			"ceiling", maxBulkOperationTasks,
+			"count", count,
+		)
 	}
 
-	writeJSON(w, http.StatusAccepted, replayAllResponse{Count: count})
+	writeJSON(w, http.StatusAccepted, replayAllResponse{Count: count, Truncated: truncated})
 }
 
 func (s *Server) handleDiscardAllDeadLetter(w http.ResponseWriter, r *http.Request) {
@@ -484,26 +537,58 @@ func (s *Server) handleDiscardAllDeadLetter(w http.ResponseWriter, r *http.Reque
 
 	deadLetter := true
 	failedState := broker.TaskStateFailed
-	result, err := s.broker.Store().ListTasks(r.Context(), broker.TaskFilter{
-		PipelineID:         &pipelineID,
-		State:              &failedState,
-		RoutedToDeadLetter: &deadLetter,
-		Limit:              maxListLimit,
-	})
-	if err != nil {
-		s.writeInternalError(w, r, http.StatusInternalServerError, "failed to list dead-letter tasks", "LIST_DEAD_LETTER_FAILED", err)
-		return
+
+	// Discarded tasks drop out of the filter (state transitions Failed→Discarded),
+	// so we fetch offset=0 each iteration instead of advancing the offset.
+	logger := s.logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
 	count := 0
+	truncated := false
 	state := broker.TaskStateDiscarded
-	for _, task := range result.Tasks {
-		if err := s.broker.Store().UpdateTask(r.Context(), task.ID, broker.TaskUpdate{State: &state}); err == nil {
-			count++
+	for count < maxBulkOperationTasks {
+		page, err := s.broker.Store().ListTasks(r.Context(), broker.TaskFilter{
+			PipelineID:         &pipelineID,
+			State:              &failedState,
+			RoutedToDeadLetter: &deadLetter,
+			Limit:              maxListLimit,
+		})
+		if err != nil {
+			s.writeInternalError(w, r, http.StatusInternalServerError, "failed to list dead-letter tasks", "LIST_DEAD_LETTER_FAILED", err)
+			return
+		}
+		if len(page.Tasks) == 0 {
+			break
+		}
+		progressed := false
+		for _, task := range page.Tasks {
+			if count >= maxBulkOperationTasks {
+				truncated = true
+				break
+			}
+			if err := s.broker.Store().UpdateTask(r.Context(), task.ID, broker.TaskUpdate{State: &state}); err == nil {
+				count++
+				progressed = true
+			}
+		}
+		// If no task in the current page could be updated, break to avoid an
+		// infinite loop (e.g. a permissions or store error that won't recover).
+		if !progressed {
+			break
 		}
 	}
+	if count >= maxBulkOperationTasks {
+		truncated = true
+		logger.Warn("discard-all hit per-call ceiling",
+			"pipeline_id", pipelineID,
+			"ceiling", maxBulkOperationTasks,
+			"count", count,
+		)
+	}
 
-	writeJSON(w, http.StatusOK, discardAllResponse{Count: count})
+	writeJSON(w, http.StatusOK, discardAllResponse{Count: count, Truncated: truncated})
 }
 
 // --- Helpers ---

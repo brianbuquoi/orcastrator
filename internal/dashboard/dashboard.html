@@ -368,12 +368,15 @@
     const el = document.getElementById('agent-health');
     el.innerHTML = '';
     Object.keys(data.agents).sort().forEach(function(id) {
-      const status = data.agents[id];
+      const entry = data.agents[id] || {};
+      const status = entry.status || 'unknown';
+      const message = entry.message || '';
       const isOk = status === 'ok';
+      const label = isOk ? 'ok' : (message ? status + ': ' + message : status);
       const div = document.createElement('div');
       div.className = 'agent-row';
       div.innerHTML = '<span>' + esc(id) + '</span><span class="agent-badge ' + (isOk ? 'ok' : 'error') + '">' +
-        (isOk ? 'ok' : esc(status.substring(0, 40))) + '</span>';
+        esc(label.substring(0, 40)) + '</span>';
       el.appendChild(div);
     });
   }

@@ -435,20 +435,23 @@ func TestHealth_PartialFailure_TimedOutAgent(t *testing.T) {
 	}
 
 	// 4. Healthy agents report "ok".
-	if resp.Agents["agent-1"] != "ok" {
-		t.Errorf("agent-1: expected ok, got %s", resp.Agents["agent-1"])
+	if resp.Agents["agent-1"].Status != "ok" {
+		t.Errorf("agent-1: expected ok, got %+v", resp.Agents["agent-1"])
 	}
-	if resp.Agents["agent-2"] != "ok" {
-		t.Errorf("agent-2: expected ok, got %s", resp.Agents["agent-2"])
+	if resp.Agents["agent-2"].Status != "ok" {
+		t.Errorf("agent-2: expected ok, got %+v", resp.Agents["agent-2"])
 	}
 
-	// 5. The timed-out agent's entry contains an error string, not null/empty.
-	agent3Status := resp.Agents["agent-3"]
-	if agent3Status == "" || agent3Status == "ok" {
-		t.Fatalf("agent-3: expected error string, got %q", agent3Status)
+	// 5. Timed-out agent reports opaque "error" status — no internal details.
+	if resp.Agents["agent-3"].Status != "error" {
+		t.Fatalf("agent-3: expected status=error, got %+v", resp.Agents["agent-3"])
 	}
-	if !strings.Contains(agent3Status, "error:") {
-		t.Fatalf("agent-3: expected error prefix, got %q", agent3Status)
+	if resp.Agents["agent-3"].Message != "health check failed" {
+		t.Fatalf("agent-3: expected opaque message, got %q", resp.Agents["agent-3"].Message)
+	}
+	// Raw error details MUST NOT appear anywhere in the response body.
+	if strings.Contains(w.Body.String(), "context deadline exceeded") {
+		t.Fatalf("health response leaked internal error: %s", w.Body.String())
 	}
 }
 

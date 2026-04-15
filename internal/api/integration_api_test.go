@@ -280,16 +280,19 @@ func TestAPI_Health_AllHealthy(t *testing.T) {
 	}
 
 	var resp struct {
-		Status string            `json:"status"`
-		Agents map[string]string `json:"agents"`
+		Status string `json:"status"`
+		Agents map[string]struct {
+			Status  string `json:"status"`
+			Message string `json:"message,omitempty"`
+		} `json:"agents"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &resp)
 
 	if resp.Status != "ok" {
 		t.Errorf("expected status=ok, got %s", resp.Status)
 	}
-	if resp.Agents["agent1"] != "ok" {
-		t.Errorf("expected agent1=ok, got %s", resp.Agents["agent1"])
+	if resp.Agents["agent1"].Status != "ok" {
+		t.Errorf("expected agent1=ok, got %+v", resp.Agents["agent1"])
 	}
 }
 
@@ -359,16 +362,19 @@ func TestAPI_Health_OneUnhealthy(t *testing.T) {
 	srv.Handler().ServeHTTP(w, req)
 
 	var resp struct {
-		Status string            `json:"status"`
-		Agents map[string]string `json:"agents"`
+		Status string `json:"status"`
+		Agents map[string]struct {
+			Status  string `json:"status"`
+			Message string `json:"message,omitempty"`
+		} `json:"agents"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &resp)
 
 	if resp.Status != "degraded" {
 		t.Errorf("expected status=degraded, got %s", resp.Status)
 	}
-	if !strings.Contains(resp.Agents["unhealthy-agent"], "error") {
-		t.Errorf("expected unhealthy agent error, got %s", resp.Agents["unhealthy-agent"])
+	if resp.Agents["unhealthy-agent"].Status != "error" {
+		t.Errorf("expected unhealthy agent status=error, got %+v", resp.Agents["unhealthy-agent"])
 	}
 }
 

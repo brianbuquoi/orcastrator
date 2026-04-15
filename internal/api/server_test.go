@@ -329,11 +329,18 @@ func TestHealth_Degraded(t *testing.T) {
 	if resp.Status != "degraded" {
 		t.Fatalf("expected status degraded, got %s", resp.Status)
 	}
-	if resp.Agents["agent-1"] != "ok" {
-		t.Fatalf("expected agent-1 ok, got %s", resp.Agents["agent-1"])
+	if resp.Agents["agent-1"].Status != "ok" {
+		t.Fatalf("expected agent-1 ok, got %+v", resp.Agents["agent-1"])
 	}
-	if !strings.HasPrefix(resp.Agents["agent-2"], "error:") {
-		t.Fatalf("expected agent-2 error, got %s", resp.Agents["agent-2"])
+	if resp.Agents["agent-2"].Status != "error" {
+		t.Fatalf("expected agent-2 status=error, got %+v", resp.Agents["agent-2"])
+	}
+	if resp.Agents["agent-2"].Message != "health check failed" {
+		t.Fatalf("expected opaque health check message, got %q", resp.Agents["agent-2"].Message)
+	}
+	// Raw error string MUST NOT appear in the response body.
+	if strings.Contains(w.Body.String(), "connection refused") {
+		t.Fatalf("health response leaked internal error string: %s", w.Body.String())
 	}
 }
 
