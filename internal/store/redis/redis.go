@@ -296,6 +296,86 @@ func (r *RedisStore) UpdateTask(ctx context.Context, taskID string, update broke
 	return nil
 }
 
+// claimForReplayScript atomically verifies a task is in FAILED+dead-lettered
+// state and transitions it to PENDING, updating per-state indexes in the
+// same round-trip. Concurrent callers for the same taskID see exactly one
+// success; the rest observe "NOT_REPLAYABLE".
+//
+//	KEYS[1] = task key
+//	KEYS[2] = state index key for FAILED (source)
+//	KEYS[3] = state index key for PENDING (destination)
+//	ARGV[1] = updated_at timestamp (RFC3339Nano)
+//	ARGV[2] = score for ZADD (unix seconds as string)
+//
+// Returns: the updated task JSON on success, "TASK_NOT_FOUND" or
+// "NOT_REPLAYABLE" on the failure paths.
+const claimForReplayScript = `
+local data = redis.call('GET', KEYS[1])
+if not data then
+  return 'TASK_NOT_FOUND'
+end
+local task = cjson.decode(data)
+if task.state ~= 'FAILED' or not task.routed_to_dead_letter then
+  return 'NOT_REPLAYABLE'
+end
+task.state = 'PENDING'
+task.routed_to_dead_letter = false
+task.attempts = 0
+task.updated_at = ARGV[1]
+local newData = cjson.encode(task)
+local pttl = redis.call('PTTL', KEYS[1])
+if pttl and tonumber(pttl) and tonumber(pttl) > 0 then
+  redis.call('SET', KEYS[1], newData, 'PX', tonumber(pttl))
+else
+  redis.call('SET', KEYS[1], newData)
+end
+redis.call('ZREM', KEYS[2], task.id)
+redis.call('ZADD', KEYS[3], tonumber(ARGV[2]), task.id)
+return newData
+`
+
+var claimForReplay = redis.NewScript(claimForReplayScript)
+
+// ClaimForReplay atomically transitions a FAILED+dead-lettered task to
+// PENDING via a Lua script, producing a single-winner outcome under
+// concurrent requests.
+func (r *RedisStore) ClaimForReplay(ctx context.Context, taskID string) (*broker.Task, error) {
+	now := time.Now()
+	nowStr := now.UTC().Format(time.RFC3339Nano)
+	score := float64(now.UnixNano()) / 1e9
+	scoreStr := fmt.Sprintf("%f", score)
+
+	res, err := claimForReplay.Run(ctx, r.client,
+		[]string{
+			r.taskKey(taskID),
+			r.stateIndexKey(broker.TaskStateFailed),
+			r.stateIndexKey(broker.TaskStatePending),
+		},
+		nowStr,
+		scoreStr,
+	).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: claim for replay: %w", err)
+	}
+
+	s, ok := res.(string)
+	if !ok {
+		return nil, fmt.Errorf("redis: claim for replay: unexpected reply type %T", res)
+	}
+	switch s {
+	case "TASK_NOT_FOUND":
+		return nil, store.ErrTaskNotFound
+	case "NOT_REPLAYABLE":
+		return nil, store.ErrTaskNotReplayable
+	}
+
+	var task broker.Task
+	if err := json.Unmarshal([]byte(s), &task); err != nil {
+		return nil, fmt.Errorf("redis: claim for replay: unmarshal: %w", err)
+	}
+	return &task, nil
+}
+
 func (r *RedisStore) GetTask(ctx context.Context, taskID string) (*broker.Task, error) {
 	data, err := r.client.Get(ctx, r.taskKey(taskID)).Bytes()
 	if err != nil {

@@ -692,3 +692,125 @@ func TestRedis_ListTasksStateIndex(t *testing.T) {
 		}
 	}
 }
+
+// TestRedis_ClaimForReplay_HappyPath verifies the atomic transition from
+// FAILED+dead-letter to PENDING, including the per-state index swap.
+func TestRedis_ClaimForReplay_HappyPath(t *testing.T) {
+	t.Parallel()
+	s, _, _ := newRedisTestStore(t, "claim-ok:")
+	ctx := context.Background()
+
+	task := &broker.Task{
+		ID: uuid.New().String(), PipelineID: "p", StageID: "s",
+		InputSchemaName: "in", InputSchemaVersion: "v1",
+		OutputSchemaName: "out", OutputSchemaVersion: "v1",
+		Payload: json.RawMessage(`{}`), Metadata: map[string]any{},
+		State: broker.TaskStateFailed, RoutedToDeadLetter: true,
+		Attempts: 3, MaxAttempts: 3,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.EnqueueTask(ctx, "s", task); err != nil {
+		t.Fatal(err)
+	}
+	// Move the per-state index from PENDING (set by EnqueueTask) to FAILED,
+	// matching the state we seeded on the Task itself.
+	failed := broker.TaskStateFailed
+	if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &failed}); err != nil {
+		t.Fatal(err)
+	}
+	dl := true
+	if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{RoutedToDeadLetter: &dl}); err != nil {
+		t.Fatal(err)
+	}
+
+	claimed, err := s.ClaimForReplay(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if claimed.State != broker.TaskStatePending {
+		t.Errorf("state: got %s want PENDING", claimed.State)
+	}
+	if claimed.RoutedToDeadLetter {
+		t.Errorf("routed_to_dead_letter should be cleared")
+	}
+	if claimed.Attempts != 0 {
+		t.Errorf("attempts: got %d want 0", claimed.Attempts)
+	}
+}
+
+func TestRedis_ClaimForReplay_NotFound(t *testing.T) {
+	t.Parallel()
+	s, _, _ := newRedisTestStore(t, "claim-nf:")
+	_, err := s.ClaimForReplay(context.Background(), "does-not-exist")
+	if err != store.ErrTaskNotFound {
+		t.Fatalf("got %v, want ErrTaskNotFound", err)
+	}
+}
+
+func TestRedis_ClaimForReplay_NotReplayable(t *testing.T) {
+	t.Parallel()
+	s, _, _ := newRedisTestStore(t, "claim-nr:")
+	ctx := context.Background()
+	task := &broker.Task{
+		ID: uuid.New().String(), PipelineID: "p", StageID: "s",
+		InputSchemaName: "in", InputSchemaVersion: "v1",
+		OutputSchemaName: "out", OutputSchemaVersion: "v1",
+		Payload: json.RawMessage(`{}`), Metadata: map[string]any{},
+		State: broker.TaskStatePending, // not replayable
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.EnqueueTask(ctx, "s", task); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.ClaimForReplay(ctx, task.ID)
+	if err != store.ErrTaskNotReplayable {
+		t.Fatalf("got %v, want ErrTaskNotReplayable", err)
+	}
+}
+
+// Concurrent ClaimForReplay calls for the same task must produce exactly
+// one winner. The Lua script runs atomically in Redis, serialising claims.
+func TestRedis_ClaimForReplay_ConcurrentSingleWinner(t *testing.T) {
+	t.Parallel()
+	s, _, _ := newRedisTestStore(t, "claim-race:")
+	ctx := context.Background()
+	task := &broker.Task{
+		ID: uuid.New().String(), PipelineID: "p", StageID: "s",
+		InputSchemaName: "in", InputSchemaVersion: "v1",
+		OutputSchemaName: "out", OutputSchemaVersion: "v1",
+		Payload: json.RawMessage(`{}`), Metadata: map[string]any{},
+		State: broker.TaskStateFailed, RoutedToDeadLetter: true,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := s.EnqueueTask(ctx, "s", task); err != nil {
+		t.Fatal(err)
+	}
+	failed := broker.TaskStateFailed
+	s.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &failed})
+	dl := true
+	s.UpdateTask(ctx, task.ID, broker.TaskUpdate{RoutedToDeadLetter: &dl})
+
+	const N = 20
+	var wg sync.WaitGroup
+	errs := make([]error, N)
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = s.ClaimForReplay(ctx, task.ID)
+		}(i)
+	}
+	wg.Wait()
+
+	won := 0
+	for _, e := range errs {
+		if e == nil {
+			won++
+		} else if e != store.ErrTaskNotReplayable {
+			t.Errorf("unexpected error from loser: %v", e)
+		}
+	}
+	if won != 1 {
+		t.Fatalf("expected exactly 1 winner, got %d", won)
+	}
+}

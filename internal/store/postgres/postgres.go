@@ -218,6 +218,57 @@ func (p *PostgresStore) UpdateTask(ctx context.Context, taskID string, update br
 	return nil
 }
 
+// ClaimForReplay atomically transitions a FAILED task to PENDING using
+// SELECT ... FOR UPDATE so concurrent claimers serialise through the row
+// lock and exactly one succeeds. Postgres does not persist the
+// routed-to-dead-letter flag (that field lives in task metadata on the
+// Redis/memory backends only), so here "replayable" is simply
+// `state = 'FAILED'`.
+func (p *PostgresStore) ClaimForReplay(ctx context.Context, taskID string) (*broker.Task, error) {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	selectQuery := fmt.Sprintf(`SELECT id, pipeline_id, stage_id,
+		input_schema_name, input_schema_version,
+		output_schema_name, output_schema_version,
+		payload, metadata, state,
+		attempts, max_attempts,
+		created_at, updated_at, expires_at
+		FROM %s WHERE id = $1 FOR UPDATE`, p.table)
+
+	row := tx.QueryRow(ctx, selectQuery, taskID)
+	task, err := scanTask(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, store.ErrTaskNotFound
+		}
+		return nil, fmt.Errorf("postgres: select for update: %w", err)
+	}
+
+	if task.State != broker.TaskStateFailed {
+		return nil, store.ErrTaskNotReplayable
+	}
+
+	task.State = broker.TaskStatePending
+	task.Attempts = 0
+	task.UpdatedAt = time.Now()
+
+	_, err = tx.Exec(ctx,
+		fmt.Sprintf(`UPDATE %s SET state = $1, attempts = $2, updated_at = $3 WHERE id = $4`, p.table),
+		string(task.State), task.Attempts, task.UpdatedAt, taskID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: update for replay: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("postgres: commit: %w", err)
+	}
+	return task, nil
+}
+
 func (p *PostgresStore) GetTask(ctx context.Context, taskID string) (*broker.Task, error) {
 	query := fmt.Sprintf(`SELECT id, pipeline_id, stage_id,
 		input_schema_name, input_schema_version,

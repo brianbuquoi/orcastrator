@@ -16,6 +16,9 @@ var (
 	// ErrQueueEmpty is an alias for broker.ErrQueueEmpty so the broker can
 	// check dequeue errors without importing the store package.
 	ErrQueueEmpty = broker.ErrQueueEmpty
+	// ErrTaskNotReplayable is returned by ClaimForReplay when the task
+	// exists but is not in a replayable state (i.e. not FAILED+dead-lettered).
+	ErrTaskNotReplayable = errors.New("task is not in a replayable state")
 )
 
 // Store is the interface for task persistence and queuing.
@@ -25,4 +28,10 @@ type Store interface {
 	UpdateTask(ctx context.Context, taskID string, update broker.TaskUpdate) error
 	GetTask(ctx context.Context, taskID string) (*broker.Task, error)
 	ListTasks(ctx context.Context, filter broker.TaskFilter) (*broker.ListTasksResult, error)
+	// ClaimForReplay atomically checks that the task is in a replayable
+	// state (FAILED with the dead-letter flag set) and transitions it to
+	// PENDING in one operation. Returns the updated task on success.
+	// Returns ErrTaskNotReplayable if the task exists but is not
+	// replayable; ErrTaskNotFound if it does not exist.
+	ClaimForReplay(ctx context.Context, taskID string) (*broker.Task, error)
 }

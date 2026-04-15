@@ -51,6 +51,10 @@ type Store interface {
 	UpdateTask(ctx context.Context, taskID string, update TaskUpdate) error
 	GetTask(ctx context.Context, taskID string) (*Task, error)
 	ListTasks(ctx context.Context, filter TaskFilter) (*ListTasksResult, error)
+	// ClaimForReplay atomically claims a dead-lettered task for replay,
+	// transitioning it from FAILED+dead-lettered to PENDING. Returns the
+	// updated task, or a not-replayable/not-found error.
+	ClaimForReplay(ctx context.Context, taskID string) (*Task, error)
 }
 
 // ErrQueueEmpty is returned by Store.DequeueTask when no tasks are available.

@@ -423,8 +423,8 @@ func TestDeadLetter_SingleTask_ErrorPaths(t *testing.T) {
 		}
 		var resp errorResponse
 		json.Unmarshal(w.Body.Bytes(), &resp)
-		if resp.Code != "NOT_DEAD_LETTERED" {
-			t.Fatalf("expected NOT_DEAD_LETTERED, got %s", resp.Code)
+		if resp.Code != "TASK_NOT_REPLAYABLE" {
+			t.Fatalf("expected TASK_NOT_REPLAYABLE, got %s", resp.Code)
 		}
 	})
 

@@ -331,3 +331,100 @@ func TestJSONSerializableTask(t *testing.T) {
 		t.Errorf("round-trip payload mismatch")
 	}
 }
+
+func TestClaimForReplay_HappyPath(t *testing.T) {
+	m := New()
+	ctx := context.Background()
+	task := newTask("p1", "s1")
+	task.State = broker.TaskStateFailed
+	task.RoutedToDeadLetter = true
+	task.Attempts = 3
+	if err := m.EnqueueTask(ctx, "s1", task); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := m.ClaimForReplay(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if claimed.State != broker.TaskStatePending {
+		t.Errorf("state: got %s want PENDING", claimed.State)
+	}
+	if claimed.RoutedToDeadLetter {
+		t.Errorf("routed_to_dead_letter should be cleared")
+	}
+	if claimed.Attempts != 0 {
+		t.Errorf("attempts: got %d want 0", claimed.Attempts)
+	}
+}
+
+func TestClaimForReplay_NotFound(t *testing.T) {
+	m := New()
+	_, err := m.ClaimForReplay(context.Background(), "does-not-exist")
+	if err != store.ErrTaskNotFound {
+		t.Fatalf("got %v, want ErrTaskNotFound", err)
+	}
+}
+
+func TestClaimForReplay_NotReplayable(t *testing.T) {
+	m := New()
+	ctx := context.Background()
+	task := newTask("p1", "s1")
+	// Task in PENDING state — not replayable.
+	if err := m.EnqueueTask(ctx, "s1", task); err != nil {
+		t.Fatal(err)
+	}
+	_, err := m.ClaimForReplay(ctx, task.ID)
+	if err != store.ErrTaskNotReplayable {
+		t.Fatalf("got %v, want ErrTaskNotReplayable", err)
+	}
+
+	// FAILED but not dead-lettered → also not replayable.
+	failed := broker.TaskStateFailed
+	m.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &failed})
+	_, err = m.ClaimForReplay(ctx, task.ID)
+	if err != store.ErrTaskNotReplayable {
+		t.Fatalf("got %v, want ErrTaskNotReplayable for non-dead-letter FAILED", err)
+	}
+}
+
+// Under concurrent claims, exactly one goroutine wins and the others see
+// ErrTaskNotReplayable because the winner has already transitioned state.
+func TestClaimForReplay_ConcurrentSingleWinner(t *testing.T) {
+	m := New()
+	ctx := context.Background()
+	task := newTask("p1", "s1")
+	task.State = broker.TaskStateFailed
+	task.RoutedToDeadLetter = true
+	if err := m.EnqueueTask(ctx, "s1", task); err != nil {
+		t.Fatal(err)
+	}
+
+	const N = 50
+	var wg sync.WaitGroup
+	wins := make([]bool, N)
+	errs := make([]error, N)
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := m.ClaimForReplay(ctx, task.ID)
+			errs[i] = err
+			wins[i] = err == nil
+		}(i)
+	}
+	wg.Wait()
+
+	won := 0
+	for i, w := range wins {
+		if w {
+			won++
+			continue
+		}
+		if errs[i] != store.ErrTaskNotReplayable {
+			t.Errorf("loser goroutine got unexpected error: %v", errs[i])
+		}
+	}
+	if won != 1 {
+		t.Fatalf("expected exactly 1 winner, got %d", won)
+	}
+}

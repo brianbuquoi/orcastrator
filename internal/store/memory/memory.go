@@ -143,6 +143,32 @@ func (m *MemoryStore) UpdateTask(_ context.Context, taskID string, update broker
 	return nil
 }
 
+// ClaimForReplay atomically transitions a FAILED+dead-lettered task to
+// PENDING. Concurrent callers for the same task will see one success and
+// the rest receive ErrTaskNotReplayable — the write lock serialises the
+// check-and-transition.
+func (m *MemoryStore) ClaimForReplay(_ context.Context, taskID string) (*broker.Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, ok := m.tasks[taskID]
+	if !ok {
+		return nil, store.ErrTaskNotFound
+	}
+	if !task.ExpiresAt.IsZero() && time.Now().After(task.ExpiresAt) {
+		return nil, store.ErrTaskNotFound
+	}
+	if task.State != broker.TaskStateFailed || !task.RoutedToDeadLetter {
+		return nil, store.ErrTaskNotReplayable
+	}
+
+	task.State = broker.TaskStatePending
+	task.RoutedToDeadLetter = false
+	task.Attempts = 0
+	task.UpdatedAt = time.Now()
+	return copyTask(task), nil
+}
+
 func (m *MemoryStore) GetTask(_ context.Context, taskID string) (*broker.Task, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
