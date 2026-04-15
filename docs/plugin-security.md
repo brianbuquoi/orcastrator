@@ -102,6 +102,53 @@ surface and `payload` as untrusted data.
 | `MaxRestarts` exceeded              | Agent marked unhealthy; all calls non-retryable.  |
 | Overlord shutdown                   | SIGTERM, wait `shutdown_timeout`, then SIGKILL.   |
 
+## Shutdown
+
+When Overlord shuts down gracefully (SIGTERM or Ctrl+C), it:
+
+1. Stops accepting new tasks.
+2. Waits for in-flight tasks to complete (broker drain).
+3. Sends SIGTERM to each plugin subprocess.
+4. Waits up to `shutdown_timeout` (from the manifest) for the process to exit.
+5. Sends SIGKILL if the process has not exited.
+
+`overlord exec` follows the same sequence when its task finishes or the
+deferred cleanup runs. On hot-reload (SIGHUP), plugin agents from the old
+configuration are stopped before the new agent map takes effect — every
+reload starts fresh plugin subprocesses on first use.
+
+## Throughput and Capacity Planning
+
+Each plugin agent instance processes exactly one task at a time. The
+JSON-RPC protocol is serial: the host sends a request and waits for the
+response before sending the next one. The mutex that guards this in
+`internal/plugin/agent.go` is held for the full stdin/stdout round-trip.
+
+**Throughput estimate:** If your plugin takes an average of T seconds per
+task, a single plugin agent instance can process at most 1/T tasks per
+second.
+
+**Scaling:** To increase throughput, configure multiple plugin agent
+instances with the same manifest but different agent IDs:
+
+```yaml
+agents:
+  - id: my-plugin-1
+    provider: plugin
+    manifest: ./plugins/my-plugin/manifest.yaml
+
+  - id: my-plugin-2
+    provider: plugin
+    manifest: ./plugins/my-plugin/manifest.yaml
+```
+
+Then distribute load across them in your pipeline stage configuration.
+Each agent instance starts its own subprocess, so you get N concurrent
+subprocesses for N agent instances.
+
+**Note:** Plugin subprocesses are independent OS processes. The throughput
+limit is per-instance, not per-plugin-binary.
+
 ## Deployment Recommendations
 
 - Run the plugin binary as a less-privileged user than Overlord itself.

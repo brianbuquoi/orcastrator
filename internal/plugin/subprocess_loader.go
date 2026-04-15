@@ -13,36 +13,70 @@ import (
 
 // compile-time interface satisfaction
 var _ agent.Agent = (*lazyAgent)(nil)
+var _ agent.Stopper = (*lazyAgent)(nil)
+
+// PluginValidationError wraps a configuration-time plugin error (bad manifest,
+// missing or non-executable binary) so callers can distinguish it from a
+// runtime transport/task-execution error. CLIs that care about exit codes
+// (e.g. `overlord exec`) use errors.As with this type to map to the
+// config-error exit code rather than the task-failure exit code.
+type PluginValidationError struct {
+	AgentID string
+	Err     error
+}
+
+func (e *PluginValidationError) Error() string {
+	return fmt.Sprintf("plugin agent %q: %v", e.AgentID, e.Err)
+}
+
+func (e *PluginValidationError) Unwrap() error { return e.Err }
 
 // LoadAndCreate builds a subprocess-backed agent.Agent from a plugin config.
-// Manifest loading and subprocess startup are BOTH deferred to the first
-// Execute/HealthCheck call — the registry contract is that adapters must not
-// touch the filesystem or validate credentials at construction time.
+// The manifest is loaded and validated eagerly; the binary path is resolved
+// and checked for existence and executability. The subprocess itself is
+// still started lazily on the first Execute/HealthCheck call.
+//
+// A validation failure is returned as *PluginValidationError so callers can
+// distinguish a config-time error from a runtime task failure.
 //
 // This is the entry point used by the agent registry when Provider == "plugin".
 // It is distinct from the older .so loader (CreatePluginAgent) which loads
 // in-process shared-library plugins.
 func LoadAndCreate(cfg config.Agent, logger *slog.Logger) (agent.Agent, error) {
 	if cfg.ManifestPath == "" {
-		return nil, fmt.Errorf("plugin agent %q: manifest path is required (set `manifest:` in the agent config)", cfg.ID)
+		return nil, &PluginValidationError{
+			AgentID: cfg.ID,
+			Err:     fmt.Errorf("manifest path is required (set `manifest:` in the agent config)"),
+		}
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
+
+	manifest, err := LoadManifest(cfg.ManifestPath)
+	if err != nil {
+		return nil, &PluginValidationError{AgentID: cfg.ID, Err: err}
+	}
+	resolved := manifest.ResolveBinary()
+	if err := manifest.ValidateBinary(resolved); err != nil {
+		return nil, &PluginValidationError{AgentID: cfg.ID, Err: err}
+	}
+
 	return &lazyAgent{
 		id:           cfg.ID,
 		systemPrompt: cfg.SystemPrompt,
-		manifestPath: cfg.ManifestPath,
+		manifest:     manifest,
 		logger:       logger,
 	}, nil
 }
 
-// lazyAgent wraps a subprocess Agent and defers manifest loading until first
-// use. It satisfies agent.Agent.
+// lazyAgent wraps a subprocess Agent and defers subprocess startup until
+// first use. The manifest has already been loaded and the binary validated
+// at construction time.
 type lazyAgent struct {
 	id           string
 	systemPrompt string
-	manifestPath string
+	manifest     *Manifest
 	logger       *slog.Logger
 
 	mu    sync.Mutex
@@ -62,12 +96,7 @@ func (l *lazyAgent) resolve() (*Agent, error) {
 	if l.err != nil {
 		return nil, l.err
 	}
-	manifest, err := LoadManifest(l.manifestPath)
-	if err != nil {
-		l.err = fmt.Errorf("plugin agent %q: %w", l.id, err)
-		return nil, l.err
-	}
-	a, err := New(l.id, l.systemPrompt, manifest, l.logger)
+	a, err := New(l.id, l.systemPrompt, l.manifest, l.logger)
 	if err != nil {
 		l.err = err
 		return nil, err
@@ -90,4 +119,16 @@ func (l *lazyAgent) HealthCheck(ctx context.Context) error {
 		return err
 	}
 	return a.HealthCheck(ctx)
+}
+
+// Stop terminates the wrapped subprocess if one was started. Safe to call
+// even when the subprocess has not been started (no-op in that case).
+func (l *lazyAgent) Stop() error {
+	l.mu.Lock()
+	inner := l.inner
+	l.mu.Unlock()
+	if inner == nil {
+		return nil
+	}
+	return inner.Stop()
 }

@@ -111,6 +111,60 @@ func TestManifest_ResolveBinary_Absolute(t *testing.T) {
 	}
 }
 
+func TestManifest_ValidateBinary_NotFound(t *testing.T) {
+	m := &Manifest{Name: "x", Binary: "/no/such/thing"}
+	err := m.ValidateBinary("/no/such/binary_that_does_not_exist")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
+	}
+}
+
+func TestManifest_ValidateBinary_NotExecutable(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "not_exec")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\necho hi\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	m := &Manifest{Name: "x", Binary: p}
+	err := m.ValidateBinary(p)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not executable") {
+		t.Errorf("expected 'not executable' in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "chmod +x") {
+		t.Errorf("expected chmod hint in error, got: %v", err)
+	}
+}
+
+func TestManifest_ValidateBinary_IsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manifest{Name: "x", Binary: dir}
+	err := m.ValidateBinary(dir)
+	if err == nil {
+		t.Fatal("expected error for directory")
+	}
+	if !strings.Contains(err.Error(), "directory") {
+		t.Errorf("expected 'directory' in error, got: %v", err)
+	}
+}
+
+func TestManifest_ValidateBinary_OK(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "ok")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	m := &Manifest{Name: "x", Binary: p}
+	if err := m.ValidateBinary(p); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestManifest_OnFailureDefault(t *testing.T) {
 	m := &Manifest{}
 	if got := m.OnFailureOrDefault(); got != OnFailureRetryable {

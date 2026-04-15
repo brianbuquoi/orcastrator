@@ -362,3 +362,71 @@ pipelines:
 		t.Errorf("expected response payload on stdout, got: %s", stdout)
 	}
 }
+
+// TestExec_PluginBinaryNotFound: a plugin agent whose manifest points at a
+// nonexistent binary must fail at agent-registry construction (exit 3 =
+// config error), not at task execution (exit 1 = task failure).
+func TestExec_PluginBinaryNotFound(t *testing.T) {
+	dir := t.TempDir()
+	schemasDir := filepath.Join(dir, "schemas")
+	if err := os.MkdirAll(schemasDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inSchema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"request":{"type":"string"}},"required":["request"]}`
+	outSchema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"response":{"type":"string"}},"required":["response"]}`
+	os.WriteFile(filepath.Join(schemasDir, "in_v1.json"), []byte(inSchema), 0o644)
+	os.WriteFile(filepath.Join(schemasDir, "out_v1.json"), []byte(outSchema), 0o644)
+
+	// Write a manifest that points at a binary that does not exist.
+	manifestPath := filepath.Join(dir, "plugin-manifest.yaml")
+	os.WriteFile(manifestPath, []byte("name: fake\nbinary: ./does_not_exist\n"), 0o600)
+
+	yaml := `version: "1"
+
+schema_registry:
+  - name: task_in
+    version: "v1"
+    path: schemas/in_v1.json
+  - name: task_out
+    version: "v1"
+    path: schemas/out_v1.json
+
+pipelines:
+  - name: plugin-pipe
+    concurrency: 1
+    store: memory
+    stages:
+      - id: only
+        agent: bad-plugin
+        input_schema: { name: task_in, version: "v1" }
+        output_schema: { name: task_out, version: "v1" }
+        timeout: 5s
+        retry: { max_attempts: 1, backoff: fixed, base_delay: 50ms }
+        on_success: done
+        on_failure: dead-letter
+
+agents:
+  - id: bad-plugin
+    provider: plugin
+    manifest: ` + manifestPath + `
+
+stores:
+  memory:
+    max_tasks: 1000
+`
+	configPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(configPath, []byte(yaml), 0o644)
+
+	code, _, stderr := runExecCmd(t,
+		"--config", configPath,
+		"--id", "plugin-pipe",
+		"--payload", `{"request":"hi"}`,
+		"--timeout", "5s",
+	)
+	if code != execExitConfig {
+		t.Fatalf("expected exit %d (config error), got %d\nstderr: %s", execExitConfig, code, stderr)
+	}
+	if !strings.Contains(stderr, "not found") {
+		t.Errorf("expected 'not found' in error, got: %s", stderr)
+	}
+}

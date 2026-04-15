@@ -23,7 +23,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 )
 
@@ -68,6 +70,24 @@ func main() {
 	executeCount := 0
 	echoExitAfter, _ := strconv.Atoi(os.Getenv("ECHO_PLUGIN_ECHO_EXIT_AFTER"))
 	slowMs, _ := strconv.Atoi(os.Getenv("ECHO_PLUGIN_SLOW_MS"))
+
+	// When set, ignore SIGINT/SIGTERM and continue running even if stdin
+	// closes — used by tests to exercise the SIGKILL-after-timeout path in
+	// plugin.Agent.Stop.
+	if os.Getenv("ECHO_PLUGIN_IGNORE_SHUTDOWN") == "1" {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			for range sigs {
+				// swallow
+			}
+		}()
+		go func() {
+			// Hold the process alive even after stdin EOF.
+			time.Sleep(10 * time.Minute)
+			os.Exit(0)
+		}()
+	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 64*1024), 10*1024*1024)
@@ -132,5 +152,10 @@ func main() {
 		if echoExitAfter > 0 && executeCount >= echoExitAfter && req.Method == "execute" {
 			os.Exit(0)
 		}
+	}
+	// If configured to ignore shutdown signals, stay alive after stdin EOF
+	// so the host's SIGKILL-after-timeout path is exercised.
+	if os.Getenv("ECHO_PLUGIN_IGNORE_SHUTDOWN") == "1" {
+		select {}
 	}
 }

@@ -399,7 +399,17 @@ func runCmd() *cobra.Command {
 					logger.Error("hot-reload: agents failed", "error", err)
 					return
 				}
+				// Stop subprocess-backed agents from the OLD registry before
+				// the swap: buildAgents always constructs fresh adapters, so
+				// every Stopper from the old map is orphaned by the reload
+				// and would otherwise leak its subprocess.
+				oldStoppers := registry.Stoppers(b.Agents())
 				b.Reload(newCfg, newAgents, contract.NewValidator(newReg))
+				for _, s := range oldStoppers {
+					if err := s.Stop(); err != nil {
+						logger.Warn("agent stop error during hot-reload", "error", err)
+					}
+				}
 				logger.Info("config reloaded",
 					"pipelines", len(newCfg.Pipelines),
 					"agents", len(newCfg.Agents),
@@ -422,6 +432,16 @@ func runCmd() *cobra.Command {
 
 			cancel() // Stop broker workers.
 			wg.Wait()
+
+			// Stop any agents that manage external processes (e.g. plugin
+			// subprocesses). Runs after broker drain so no new tasks are
+			// dispatched to them.
+			for _, s := range registry.Stoppers(b.Agents()) {
+				if err := s.Stop(); err != nil {
+					logger.Warn("agent stop error during shutdown", "error", err)
+				}
+			}
+
 			logger.Info("shutdown complete")
 			return nil
 		},

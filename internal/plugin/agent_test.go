@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -249,6 +250,60 @@ func TestAgent_Stop(t *testing.T) {
 	}
 }
 
+// TestPluginAgent_Stop_SendsSIGTERM: a plugin that exits cleanly on stdin EOF
+// / SIGINT (the default echo plugin behavior) is stopped by Stop() within the
+// configured shutdown_timeout. We record the PID before Stop and verify the
+// process is gone afterwards.
+func TestPluginAgent_Stop_SendsSIGTERM(t *testing.T) {
+	a := buildAgent(t, nil, func(m *Manifest) {
+		m.ShutdownTimeout = Duration{Duration: 2 * time.Second}
+	})
+	if _, err := a.Execute(context.Background(), newTask(`{}`)); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	pid := a.cmd.Process.Pid
+
+	start := time.Now()
+	if err := a.Stop(); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("Stop took too long (%v); expected clean exit on signal", d)
+	}
+	// PID should no longer belong to a live echo plugin process.
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Errorf("process %d still alive after Stop", pid)
+	}
+}
+
+// TestPluginAgent_Stop_KillsAfterTimeout: a plugin that ignores SIGINT/SIGTERM
+// and blocks forever is killed via SIGKILL after shutdown_timeout elapses.
+func TestPluginAgent_Stop_KillsAfterTimeout(t *testing.T) {
+	a := buildAgent(t,
+		map[string]string{"ECHO_PLUGIN_IGNORE_SHUTDOWN": "1"},
+		func(m *Manifest) {
+			m.ShutdownTimeout = Duration{Duration: 200 * time.Millisecond}
+		},
+	)
+	if _, err := a.Execute(context.Background(), newTask(`{}`)); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	pid := a.cmd.Process.Pid
+
+	start := time.Now()
+	if err := a.Stop(); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	// Stop returned only after the SIGKILL path executed, so the process
+	// must be dead. Elapsed time should be >= shutdown_timeout.
+	if d := time.Since(start); d < 200*time.Millisecond {
+		t.Errorf("Stop returned too quickly (%v); expected >= shutdown_timeout", d)
+	}
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Errorf("process %d still alive after SIGKILL path", pid)
+	}
+}
+
 func TestAgent_IDAndProvider(t *testing.T) {
 	a := buildAgent(t, nil, nil)
 	if a.ID() != "test-plugin" {
@@ -259,30 +314,15 @@ func TestAgent_IDAndProvider(t *testing.T) {
 	}
 }
 
-func TestLoadAndCreate_LazyMissingManifest(t *testing.T) {
-	// Construction succeeds (lazy); HealthCheck triggers the manifest load.
-	a, err := LoadAndCreate(config.Agent{
+func TestLoadAndCreate_EagerMissingManifest(t *testing.T) {
+	// Manifest validation is now eager — missing manifest fails at
+	// construction time rather than on first HealthCheck/Execute.
+	_, err := LoadAndCreate(config.Agent{
 		ID:           "missing",
 		Provider:     "plugin",
 		ManifestPath: "/nonexistent/manifest.yaml",
 	}, slog.Default())
-	if err != nil {
-		t.Fatalf("construction should be lazy: %v", err)
-	}
-	if a.ID() != "missing" || a.Provider() != "plugin" {
-		t.Errorf("lazy agent id/provider: %q/%q", a.ID(), a.Provider())
-	}
-	if err := a.HealthCheck(context.Background()); err == nil {
-		t.Fatal("expected error from missing manifest")
-	}
-}
-
-func TestLoadAndCreate_EmptyManifestPath(t *testing.T) {
-	_, err := LoadAndCreate(config.Agent{
-		ID:       "nopath",
-		Provider: "plugin",
-	}, slog.Default())
 	if err == nil {
-		t.Fatal("expected error for empty manifest path")
+		t.Fatal("expected eager validation error")
 	}
 }

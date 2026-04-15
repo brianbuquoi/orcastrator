@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/brianbuquoi/overlord/internal/agent"
+	"github.com/brianbuquoi/overlord/internal/broker"
 	"github.com/brianbuquoi/overlord/internal/agent/anthropic"
 	"github.com/brianbuquoi/overlord/internal/agent/copilot"
 	"github.com/brianbuquoi/overlord/internal/agent/google"
@@ -110,4 +111,21 @@ func NewFromConfigWithPlugins(cfg config.Agent, plugins map[string]pluginapi.Age
 		"unknown agent provider %q for agent %q — valid providers: anthropic, openai, openai-responses, google, ollama, copilot, plugin",
 		cfg.Provider, cfg.ID,
 	)
+}
+
+// Stoppers returns all agents from the given registry map that implement
+// agent.Stopper. Call Stop() on each during shutdown, after the broker has
+// drained. Built-in LLM adapters do not implement Stopper; plugin
+// subprocess agents do.
+func Stoppers(agents map[string]broker.Agent) []agent.Stopper {
+	if len(agents) == 0 {
+		return nil
+	}
+	stoppers := make([]agent.Stopper, 0, len(agents))
+	for _, a := range agents {
+		if s, ok := a.(agent.Stopper); ok {
+			stoppers = append(stoppers, s)
+		}
+	}
+	return stoppers
 }

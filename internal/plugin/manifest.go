@@ -96,6 +96,28 @@ func (m *Manifest) Validate() error {
 	return nil
 }
 
+// ValidateBinary checks that the binary exists and is executable.
+// Call this separately from Validate() since it requires the resolved
+// binary path (absolute) rather than the manifest-relative path.
+func (m *Manifest) ValidateBinary(resolvedBinaryPath string) error {
+	info, err := os.Stat(resolvedBinaryPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("plugin binary not found: %s", resolvedBinaryPath)
+		}
+		return fmt.Errorf("plugin binary inaccessible: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("plugin binary path is a directory: %s", resolvedBinaryPath)
+	}
+	// Executable bit (owner, group, or other).
+	if info.Mode()&0111 == 0 {
+		return fmt.Errorf("plugin binary is not executable: %s (run: chmod +x %s)",
+			resolvedBinaryPath, resolvedBinaryPath)
+	}
+	return nil
+}
+
 // OnFailureOrDefault returns m.OnFailure, defaulting to OnFailureRetryable
 // when unset.
 func (m *Manifest) OnFailureOrDefault() string {

@@ -67,6 +67,14 @@ type Agent interface {
 	HealthCheck(ctx context.Context) error
 }
 
+// Stopper is implemented by agents that manage external resources (e.g.
+// subprocess plugin agents) and require explicit cleanup on shutdown.
+// Not all agents implement Stopper — built-in LLM adapters do not, since
+// they hold only HTTP clients that clean up via GC.
+type Stopper interface {
+	Stop() error
+}
+
 // AgentError wraps an underlying error with provider context and retryability.
 type AgentError struct {
 	Err        error         `json:"-"`

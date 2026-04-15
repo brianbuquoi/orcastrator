@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/brianbuquoi/overlord/internal/agent/registry"
 	"github.com/brianbuquoi/overlord/internal/broker"
 	"github.com/brianbuquoi/overlord/internal/config"
 	"github.com/brianbuquoi/overlord/internal/metrics"
@@ -179,6 +180,12 @@ func runExec(cmd *cobra.Command, a execArgs) error {
 		select {
 		case <-drainDone:
 		case <-time.After(10 * time.Second):
+		}
+		// Stop any subprocess-backed agents after the broker has drained.
+		for _, s := range registry.Stoppers(b.Agents()) {
+			if err := s.Stop(); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent stop error: %v\n", err)
+			}
 		}
 	}()
 

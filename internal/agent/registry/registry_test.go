@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/brianbuquoi/overlord/internal/broker"
 	"github.com/brianbuquoi/overlord/internal/config"
 )
 
@@ -163,6 +165,13 @@ func TestNewFromConfig_AllExampleConfigs(t *testing.T) {
 
 			for _, agentCfg := range cfg.Agents {
 				t.Run(agentCfg.ID, func(t *testing.T) {
+					// Plugin agents validate their manifest and binary
+					// eagerly — this test covers LLM-adapter construction
+					// semantics ("no credentials at construction"). Plugin
+					// validation has its own coverage in internal/plugin.
+					if agentCfg.Provider == "plugin" {
+						t.Skip("plugin provider uses eager manifest/binary validation")
+					}
 					// Adapters must construct without API keys set.
 					// Credential errors should only surface at HealthCheck/Execute.
 					a, err := NewFromConfig(agentCfg, slog.Default())
@@ -181,4 +190,61 @@ func TestNewFromConfig_AllExampleConfigs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStoppers_FiltersByInterface(t *testing.T) {
+	nonStop := &fakeAgent{id: "plain"}
+	stop := &fakeStoppable{id: "plug"}
+
+	agents := map[string]broker.Agent{
+		"plain": nonStop,
+		"plug":  stop,
+	}
+	got := Stoppers(agents)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 stopper, got %d", len(got))
+	}
+	if err := got[0].Stop(); err != nil {
+		t.Errorf("stop: %v", err)
+	}
+	if !stop.stopped {
+		t.Errorf("Stop was not invoked")
+	}
+}
+
+func TestStoppers_EmptyMap(t *testing.T) {
+	if got := Stoppers(nil); got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+	if got := Stoppers(map[string]broker.Agent{}); got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+type fakeAgent struct {
+	id string
+}
+
+func (f *fakeAgent) ID() string       { return f.id }
+func (f *fakeAgent) Provider() string { return "fake" }
+func (f *fakeAgent) Execute(ctx context.Context, task *broker.Task) (*broker.TaskResult, error) {
+	return nil, nil
+}
+func (f *fakeAgent) HealthCheck(ctx context.Context) error { return nil }
+
+type fakeStoppable struct {
+	fakeAgent
+	id      string
+	stopped bool
+}
+
+func (f *fakeStoppable) ID() string       { return f.id }
+func (f *fakeStoppable) Provider() string { return "fake-stop" }
+func (f *fakeStoppable) Execute(ctx context.Context, task *broker.Task) (*broker.TaskResult, error) {
+	return nil, nil
+}
+func (f *fakeStoppable) HealthCheck(ctx context.Context) error { return nil }
+func (f *fakeStoppable) Stop() error {
+	f.stopped = true
+	return nil
 }

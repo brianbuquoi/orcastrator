@@ -40,6 +40,12 @@ type Agent struct {
 	manifest     *Manifest
 	logger       *slog.Logger
 
+	// mu serializes all JSON-RPC calls to the subprocess. Plugin subprocesses
+	// process exactly one request at a time. For high-throughput pipeline
+	// stages, deploy multiple plugin agent instances (separate agent IDs
+	// with the same manifest) and distribute load across them via stage
+	// configuration. See docs/plugin-security.md for capacity planning
+	// guidance.
 	mu     sync.Mutex
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
