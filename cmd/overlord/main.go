@@ -1357,14 +1357,14 @@ func deadLetterCmd() *cobra.Command {
 func recoverTaskCLI(ctx context.Context, b *broker.Broker, taskID string) (string, error) {
 	if err := b.Store().RollbackReplayClaim(ctx, taskID); err != nil {
 		if errors.Is(err, store.ErrTaskNotFound) {
-			return "", fmt.Errorf("Task %s not found.", taskID)
+			return "", fmt.Errorf("task %s not found", taskID)
 		}
 		if errors.Is(err, store.ErrTaskNotReplayPending) {
 			state := "unknown"
 			if t, gerr := b.Store().GetTask(ctx, taskID); gerr == nil && t != nil {
 				state = string(t.State)
 			}
-			return "", fmt.Errorf("Task %s is not in REPLAY_PENDING state (current state: %s). No action taken.", taskID, state)
+			return "", fmt.Errorf("task %s is not in REPLAY_PENDING state (current state: %s); no action taken", taskID, state)
 		}
 		return "", fmt.Errorf("recover failed: %w", err)
 	}
