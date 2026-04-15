@@ -1099,6 +1099,134 @@ func TestReplayDeadLetter_SubmitAndRollbackFail(t *testing.T) {
 	}
 }
 
+// TestDeadLetter_FullLifecycle walks a task through the complete dead-letter
+// recovery flow end-to-end at the API layer:
+//
+//  1. submit                          → task PENDING
+//  2. retry exhaustion (simulated)    → task FAILED + RoutedToDeadLetter=true
+//  3. POST /v1/dead-letter/{id}/replay → 202 with a new task ID
+//  4. original                        → REPLAYED, RoutedToDeadLetter=false
+//  5. new task                        → present, PENDING, distinct ID, fresh Attempts
+//  6. new task completion (simulated) → DONE
+//
+// The broker is not actually Run() (schema registry is empty in this test
+// harness), so steps 2 and 6 are driven via direct store updates that mirror
+// what the broker's failTask and successful-completion paths would do.
+func TestDeadLetter_FullLifecycle(t *testing.T) {
+	srv, b, st := newDeadLetterTestServer(t)
+	t.Cleanup(func() { srv.Shutdown(context.Background()) })
+
+	ctx := context.Background()
+
+	// 1. Submit.
+	origTask, err := b.Submit(ctx, "test-pipeline", json.RawMessage(`{"input":"lifecycle"}`))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	// 2. Simulate retry exhaustion (what broker.failTask would produce after
+	//    MaxAttempts retryable failures).
+	failed := broker.TaskStateFailed
+	dl := true
+	attempts := origTask.MaxAttempts
+	if err := st.UpdateTask(ctx, origTask.ID, broker.TaskUpdate{
+		State:              &failed,
+		RoutedToDeadLetter: &dl,
+		Attempts:           &attempts,
+		Metadata: map[string]any{
+			"failure_reason": "agent always fails: retries exhausted",
+		},
+	}); err != nil {
+		t.Fatalf("simulate retry exhaustion: %v", err)
+	}
+
+	// Sanity: the task now appears in the dead-letter listing.
+	preReplay, err := st.GetTask(ctx, origTask.ID)
+	if err != nil {
+		t.Fatalf("get original pre-replay: %v", err)
+	}
+	if preReplay.State != broker.TaskStateFailed || !preReplay.RoutedToDeadLetter {
+		t.Fatalf("pre-replay: got state=%s dl=%v want FAILED+DL=true",
+			preReplay.State, preReplay.RoutedToDeadLetter)
+	}
+
+	// 3. Replay via HTTP.
+	req := httptest.NewRequest(http.MethodPost, "/v1/dead-letter/"+origTask.ID+"/replay", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("replay: got %d want 202: %s", w.Code, w.Body.String())
+	}
+	var resp replayResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal replay response: %v", err)
+	}
+	if resp.TaskID == "" {
+		t.Fatal("replay response: missing new task_id")
+	}
+	if resp.TaskID == origTask.ID {
+		t.Fatalf("replay response: new task_id equals original %s", origTask.ID)
+	}
+
+	// 4. Original should now be REPLAYED (terminal audit state) with
+	//    RoutedToDeadLetter cleared.
+	origAfter, err := st.GetTask(ctx, origTask.ID)
+	if err != nil {
+		t.Fatalf("get original post-replay: %v", err)
+	}
+	if origAfter.State != broker.TaskStateReplayed {
+		t.Errorf("original post-replay: state=%s want REPLAYED", origAfter.State)
+	}
+	if origAfter.RoutedToDeadLetter {
+		t.Error("original post-replay: RoutedToDeadLetter should be cleared")
+	}
+
+	// 5. New task is present, PENDING, with fresh attempts and same payload.
+	newTask, err := st.GetTask(ctx, resp.TaskID)
+	if err != nil {
+		t.Fatalf("get new task: %v", err)
+	}
+	if newTask.State != broker.TaskStatePending {
+		t.Errorf("new task: state=%s want PENDING", newTask.State)
+	}
+	if newTask.Attempts != 0 {
+		t.Errorf("new task: Attempts=%d want 0 (fresh replay)", newTask.Attempts)
+	}
+	if string(newTask.Payload) != string(origTask.Payload) {
+		t.Errorf("new task payload: %q want %q", string(newTask.Payload), string(origTask.Payload))
+	}
+	if newTask.PipelineID != origTask.PipelineID {
+		t.Errorf("new task pipeline: %q want %q", newTask.PipelineID, origTask.PipelineID)
+	}
+
+	// 6. Simulate successful completion of the new task (what the broker
+	//    would do on a valid agent output path).
+	done := broker.TaskStateDone
+	if err := st.UpdateTask(ctx, newTask.ID, broker.TaskUpdate{State: &done}); err != nil {
+		t.Fatalf("mark new task DONE: %v", err)
+	}
+	newFinal, err := st.GetTask(ctx, newTask.ID)
+	if err != nil {
+		t.Fatalf("get new task final: %v", err)
+	}
+	if newFinal.State != broker.TaskStateDone {
+		t.Errorf("new task final: state=%s want DONE", newFinal.State)
+	}
+	if !newFinal.State.IsTerminal() {
+		t.Errorf("new task final: state %s should be terminal", newFinal.State)
+	}
+
+	// The original task must remain REPLAYED — completion of the replay
+	// does not retroactively change the audit record.
+	origFinal, err := st.GetTask(ctx, origTask.ID)
+	if err != nil {
+		t.Fatalf("get original final: %v", err)
+	}
+	if origFinal.State != broker.TaskStateReplayed {
+		t.Errorf("original final: state=%s want REPLAYED (audit immutability)", origFinal.State)
+	}
+}
+
 // TestDiscardAll_PerTaskFailure verifies the discard-all handler reports
 // per-task update failures in `failed` and continues processing.
 func TestDiscardAll_PerTaskFailure(t *testing.T) {

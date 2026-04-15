@@ -570,6 +570,533 @@ func RunConformanceTests(t *testing.T, factory func() store.Store) {
 		}
 	})
 
+	t.Run("UpdateTaskAllFields", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		stage := "stage-update-all-" + uuid.New().String()
+
+		task := newTask("pipe-update-all", stage)
+		if err := s.EnqueueTask(ctx, stage, task); err != nil {
+			t.Fatal(err)
+		}
+
+		newStage := "stage-update-all-moved-" + uuid.New().String()
+		newPayload := json.RawMessage(`{"updated":"payload"}`)
+		newState := broker.TaskStateExecuting
+		newAttempts := 7
+		newMaxAttempts := 42
+		newInputName := "new_input"
+		newInputVersion := "v9"
+		newOutputName := "new_output"
+		newOutputVersion := "v9"
+		newDL := true
+		newCross := 3
+
+		if err := s.UpdateTask(ctx, task.ID, broker.TaskUpdate{
+			State:                 &newState,
+			StageID:               &newStage,
+			Payload:               &newPayload,
+			Metadata:              map[string]any{"extra": "data"},
+			Attempts:              &newAttempts,
+			MaxAttempts:           &newMaxAttempts,
+			InputSchemaName:       &newInputName,
+			InputSchemaVersion:    &newInputVersion,
+			OutputSchemaName:      &newOutputName,
+			OutputSchemaVersion:   &newOutputVersion,
+			RoutedToDeadLetter:    &newDL,
+			CrossStageTransitions: &newCross,
+		}); err != nil {
+			t.Fatalf("UpdateTask: %v", err)
+		}
+
+		got, err := s.GetTask(ctx, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != newState {
+			t.Errorf("State: got %s, want %s", got.State, newState)
+		}
+		if got.StageID != newStage {
+			t.Errorf("StageID: got %s, want %s", got.StageID, newStage)
+		}
+		if string(got.Payload) != string(newPayload) {
+			t.Errorf("Payload: got %s, want %s", got.Payload, newPayload)
+		}
+		if got.Attempts != newAttempts {
+			t.Errorf("Attempts: got %d, want %d", got.Attempts, newAttempts)
+		}
+		if got.MaxAttempts != newMaxAttempts {
+			t.Errorf("MaxAttempts: got %d, want %d", got.MaxAttempts, newMaxAttempts)
+		}
+		if got.InputSchemaName != newInputName {
+			t.Errorf("InputSchemaName: got %s, want %s", got.InputSchemaName, newInputName)
+		}
+		if got.InputSchemaVersion != newInputVersion {
+			t.Errorf("InputSchemaVersion: got %s, want %s", got.InputSchemaVersion, newInputVersion)
+		}
+		if got.OutputSchemaName != newOutputName {
+			t.Errorf("OutputSchemaName: got %s, want %s", got.OutputSchemaName, newOutputName)
+		}
+		if got.OutputSchemaVersion != newOutputVersion {
+			t.Errorf("OutputSchemaVersion: got %s, want %s", got.OutputSchemaVersion, newOutputVersion)
+		}
+		if !got.RoutedToDeadLetter {
+			t.Error("RoutedToDeadLetter: got false, want true")
+		}
+		if got.CrossStageTransitions != newCross {
+			t.Errorf("CrossStageTransitions: got %d, want %d", got.CrossStageTransitions, newCross)
+		}
+		if got.Metadata["extra"] != "data" {
+			t.Error("Metadata missing 'extra' key")
+		}
+		if got.Metadata["source"] != "test" {
+			t.Error("Metadata: original 'source' key lost (merge expected)")
+		}
+	})
+
+	t.Run("EnqueueDequeueRoundTripPreservesFields", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		stage := "stage-rt-" + uuid.New().String()
+
+		orig := newTask("pipe-rt", stage)
+		orig.MaxAttempts = 9
+		orig.Attempts = 1
+		orig.CrossStageTransitions = 2
+		orig.Payload = json.RawMessage(`{"roundtrip":true,"n":42}`)
+		orig.Metadata = map[string]any{"source": "test", "trace": "abc-123"}
+
+		if err := s.EnqueueTask(ctx, stage, orig); err != nil {
+			t.Fatalf("enqueue: %v", err)
+		}
+		got, err := s.DequeueTask(ctx, stage)
+		if err != nil {
+			t.Fatalf("dequeue: %v", err)
+		}
+		if got.ID != orig.ID {
+			t.Errorf("ID: got %s, want %s", got.ID, orig.ID)
+		}
+		if got.PipelineID != orig.PipelineID {
+			t.Errorf("PipelineID: got %s, want %s", got.PipelineID, orig.PipelineID)
+		}
+		if got.StageID != orig.StageID {
+			t.Errorf("StageID: got %s, want %s", got.StageID, orig.StageID)
+		}
+		if got.InputSchemaName != orig.InputSchemaName {
+			t.Errorf("InputSchemaName: got %s, want %s", got.InputSchemaName, orig.InputSchemaName)
+		}
+		if got.InputSchemaVersion != orig.InputSchemaVersion {
+			t.Errorf("InputSchemaVersion: got %s, want %s", got.InputSchemaVersion, orig.InputSchemaVersion)
+		}
+		if got.OutputSchemaName != orig.OutputSchemaName {
+			t.Errorf("OutputSchemaName: got %s, want %s", got.OutputSchemaName, orig.OutputSchemaName)
+		}
+		if got.OutputSchemaVersion != orig.OutputSchemaVersion {
+			t.Errorf("OutputSchemaVersion: got %s, want %s", got.OutputSchemaVersion, orig.OutputSchemaVersion)
+		}
+		if string(got.Payload) != string(orig.Payload) {
+			t.Errorf("Payload: got %s, want %s", got.Payload, orig.Payload)
+		}
+		if got.MaxAttempts != orig.MaxAttempts {
+			t.Errorf("MaxAttempts: got %d, want %d", got.MaxAttempts, orig.MaxAttempts)
+		}
+		if got.Attempts != orig.Attempts {
+			t.Errorf("Attempts: got %d, want %d", got.Attempts, orig.Attempts)
+		}
+		if got.CrossStageTransitions != orig.CrossStageTransitions {
+			t.Errorf("CrossStageTransitions: got %d, want %d", got.CrossStageTransitions, orig.CrossStageTransitions)
+		}
+		if got.Metadata["source"] != "test" || got.Metadata["trace"] != "abc-123" {
+			t.Errorf("Metadata not preserved: %v", got.Metadata)
+		}
+	})
+
+	t.Run("ListTasksFilterByPipelineID", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		pipeA := "pipe-a-" + uuid.New().String()
+		pipeB := "pipe-b-" + uuid.New().String()
+		stage := "stage-filter-pipe-" + uuid.New().String()
+
+		for i := 0; i < 3; i++ {
+			if err := s.EnqueueTask(ctx, stage, newTask(pipeA, stage)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for i := 0; i < 2; i++ {
+			if err := s.EnqueueTask(ctx, stage, newTask(pipeB, stage)); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		result, err := s.ListTasks(ctx, broker.TaskFilter{PipelineID: &pipeA})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Tasks) != 3 {
+			t.Errorf("pipeA: got %d, want 3", len(result.Tasks))
+		}
+		for _, tk := range result.Tasks {
+			if tk.PipelineID != pipeA {
+				t.Errorf("wrong pipeline: %s", tk.PipelineID)
+			}
+		}
+
+		result, err = s.ListTasks(ctx, broker.TaskFilter{PipelineID: &pipeB})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Tasks) != 2 {
+			t.Errorf("pipeB: got %d, want 2", len(result.Tasks))
+		}
+	})
+
+	t.Run("ListTasksFilterByState", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		stage := "stage-filter-state-" + uuid.New().String()
+
+		var ids []string
+		for i := 0; i < 4; i++ {
+			tk := newTask("pipe-state", stage)
+			if err := s.EnqueueTask(ctx, stage, tk); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, tk.ID)
+		}
+		executing := broker.TaskStateExecuting
+		for _, id := range ids[:2] {
+			if err := s.UpdateTask(ctx, id, broker.TaskUpdate{State: &executing}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		stageFilter := stage
+		result, err := s.ListTasks(ctx, broker.TaskFilter{
+			StageID: &stageFilter,
+			State:   &executing,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Tasks) != 2 {
+			t.Errorf("executing: got %d, want 2", len(result.Tasks))
+		}
+		for _, tk := range result.Tasks {
+			if tk.State != broker.TaskStateExecuting {
+				t.Errorf("wrong state: %s", tk.State)
+			}
+		}
+
+		pending := broker.TaskStatePending
+		result, err = s.ListTasks(ctx, broker.TaskFilter{
+			StageID: &stageFilter,
+			State:   &pending,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Tasks) != 2 {
+			t.Errorf("pending: got %d, want 2", len(result.Tasks))
+		}
+	})
+
+	t.Run("ListTasksExcludesDiscardedByDefault", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		stage := "stage-filter-discard-" + uuid.New().String()
+
+		var ids []string
+		for i := 0; i < 3; i++ {
+			tk := newTask("pipe-disc", stage)
+			if err := s.EnqueueTask(ctx, stage, tk); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, tk.ID)
+		}
+		discarded := broker.TaskStateDiscarded
+		if err := s.UpdateTask(ctx, ids[0], broker.TaskUpdate{State: &discarded}); err != nil {
+			t.Fatal(err)
+		}
+
+		stageFilter := stage
+
+		result, err := s.ListTasks(ctx, broker.TaskFilter{StageID: &stageFilter})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Tasks) != 2 {
+			t.Errorf("default: got %d, want 2 (DISCARDED excluded)", len(result.Tasks))
+		}
+		for _, tk := range result.Tasks {
+			if tk.State == broker.TaskStateDiscarded {
+				t.Errorf("task %s is DISCARDED but was returned", tk.ID)
+			}
+		}
+
+		result, err = s.ListTasks(ctx, broker.TaskFilter{
+			StageID:          &stageFilter,
+			IncludeDiscarded: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Tasks) != 3 {
+			t.Errorf("include_discarded: got %d, want 3", len(result.Tasks))
+		}
+	})
+
+	t.Run("ListTasksFilterByRoutedToDeadLetter", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		stage := "stage-filter-dl-" + uuid.New().String()
+
+		var ids []string
+		for i := 0; i < 4; i++ {
+			tk := newTask("pipe-dl", stage)
+			if err := s.EnqueueTask(ctx, stage, tk); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, tk.ID)
+		}
+		failed := broker.TaskStateFailed
+		dl := true
+		for _, id := range ids[:2] {
+			if err := s.UpdateTask(ctx, id, broker.TaskUpdate{
+				State:              &failed,
+				RoutedToDeadLetter: &dl,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		stageFilter := stage
+		truthy := true
+		result, err := s.ListTasks(ctx, broker.TaskFilter{
+			StageID:            &stageFilter,
+			RoutedToDeadLetter: &truthy,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Tasks) != 2 {
+			t.Errorf("dl=true: got %d, want 2", len(result.Tasks))
+		}
+		for _, tk := range result.Tasks {
+			if !tk.RoutedToDeadLetter {
+				t.Errorf("task %s: RoutedToDeadLetter should be true", tk.ID)
+			}
+		}
+
+		falsy := false
+		result, err = s.ListTasks(ctx, broker.TaskFilter{
+			StageID:            &stageFilter,
+			RoutedToDeadLetter: &falsy,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Tasks) != 2 {
+			t.Errorf("dl=false: got %d, want 2", len(result.Tasks))
+		}
+		for _, tk := range result.Tasks {
+			if tk.RoutedToDeadLetter {
+				t.Errorf("task %s: RoutedToDeadLetter should be false", tk.ID)
+			}
+		}
+	})
+
+	t.Run("ListTasksCombinedFilters", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		pipeA := "pipe-combo-a-" + uuid.New().String()
+		pipeB := "pipe-combo-b-" + uuid.New().String()
+		stage := "stage-combo-" + uuid.New().String()
+
+		var aIDs, bIDs []string
+		for i := 0; i < 3; i++ {
+			tk := newTask(pipeA, stage)
+			if err := s.EnqueueTask(ctx, stage, tk); err != nil {
+				t.Fatal(err)
+			}
+			aIDs = append(aIDs, tk.ID)
+		}
+		for i := 0; i < 3; i++ {
+			tk := newTask(pipeB, stage)
+			if err := s.EnqueueTask(ctx, stage, tk); err != nil {
+				t.Fatal(err)
+			}
+			bIDs = append(bIDs, tk.ID)
+		}
+		executing := broker.TaskStateExecuting
+		for _, id := range aIDs[:2] {
+			if err := s.UpdateTask(ctx, id, broker.TaskUpdate{State: &executing}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, id := range bIDs[:1] {
+			if err := s.UpdateTask(ctx, id, broker.TaskUpdate{State: &executing}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		stageFilter := stage
+		result, err := s.ListTasks(ctx, broker.TaskFilter{
+			PipelineID: &pipeA,
+			StageID:    &stageFilter,
+			State:      &executing,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Tasks) != 2 {
+			t.Errorf("combined: got %d, want 2", len(result.Tasks))
+		}
+		for _, tk := range result.Tasks {
+			if tk.PipelineID != pipeA || tk.State != broker.TaskStateExecuting {
+				t.Errorf("combined filter leak: %+v", tk)
+			}
+		}
+	})
+
+	t.Run("ListTasksOffsetAndTotal", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		ctx := context.Background()
+		stage := "stage-offset-" + uuid.New().String()
+
+		const n = 10
+		for i := 0; i < n; i++ {
+			tk := newTask("pipe-offset", stage)
+			tk.CreatedAt = time.Now().Add(time.Duration(i) * time.Millisecond)
+			if err := s.EnqueueTask(ctx, stage, tk); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		stageFilter := stage
+
+		page1, err := s.ListTasks(ctx, broker.TaskFilter{
+			StageID: &stageFilter,
+			Limit:   3,
+			Offset:  0,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page1.Tasks) != 3 {
+			t.Errorf("page1 len: got %d, want 3", len(page1.Tasks))
+		}
+		if page1.Total != n {
+			t.Errorf("page1 Total: got %d, want %d", page1.Total, n)
+		}
+
+		page2, err := s.ListTasks(ctx, broker.TaskFilter{
+			StageID: &stageFilter,
+			Limit:   3,
+			Offset:  3,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page2.Tasks) != 3 {
+			t.Errorf("page2 len: got %d, want 3", len(page2.Tasks))
+		}
+		if page2.Total != n {
+			t.Errorf("page2 Total: got %d, want %d", page2.Total, n)
+		}
+
+		seen := make(map[string]bool)
+		for _, tk := range page1.Tasks {
+			seen[tk.ID] = true
+		}
+		for _, tk := range page2.Tasks {
+			if seen[tk.ID] {
+				t.Errorf("task %s appears in both page1 and page2", tk.ID)
+			}
+		}
+
+		pageOOB, err := s.ListTasks(ctx, broker.TaskFilter{
+			StageID: &stageFilter,
+			Limit:   3,
+			Offset:  100,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pageOOB.Tasks) != 0 {
+			t.Errorf("oob page len: got %d, want 0", len(pageOOB.Tasks))
+		}
+		if pageOOB.Total != n {
+			t.Errorf("oob Total: got %d, want %d", pageOOB.Total, n)
+		}
+	})
+
+	t.Run("RollbackReplayClaim_Concurrent", func(t *testing.T) {
+		t.Parallel()
+		s := factory()
+		task := seedDeadLettered(t, s, "stage-rollback-concurrent-"+uuid.New().String())
+		ctx := context.Background()
+
+		if _, err := s.ClaimForReplay(ctx, task.ID); err != nil {
+			t.Fatalf("claim: %v", err)
+		}
+
+		const N = 20
+		type result struct{ err error }
+		results := make(chan result, N)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(N)
+		for i := 0; i < N; i++ {
+			go func() {
+				defer wg.Done()
+				<-start
+				results <- result{err: s.RollbackReplayClaim(ctx, task.ID)}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(results)
+
+		wins := 0
+		notPending := 0
+		for r := range results {
+			switch r.err {
+			case nil:
+				wins++
+			case store.ErrTaskNotReplayPending:
+				notPending++
+			default:
+				t.Errorf("unexpected error: %v", r.err)
+			}
+		}
+		if wins != 1 {
+			t.Errorf("winners: got %d, want 1", wins)
+		}
+		if notPending != N-1 {
+			t.Errorf("ErrTaskNotReplayPending losers: got %d, want %d", notPending, N-1)
+		}
+
+		got, err := s.GetTask(ctx, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != broker.TaskStateFailed {
+			t.Errorf("final state: got %s, want FAILED", got.State)
+		}
+		if !got.RoutedToDeadLetter {
+			t.Error("RoutedToDeadLetter: got false, want true")
+		}
+	})
+
 	t.Run("ExpiredTasksNotReturned", func(t *testing.T) {
 		t.Parallel()
 		s := factory()

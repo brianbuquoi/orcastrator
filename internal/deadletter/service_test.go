@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/brianbuquoi/overlord/internal/broker"
 	"github.com/brianbuquoi/overlord/internal/config"
@@ -391,6 +392,73 @@ func TestDiscardAll_Truncation(t *testing.T) {
 }
 
 // --- Count tests ---
+
+// TestDeadLetter_DiscardAll_PaginatesCorrectly seeds 2500 dead-lettered
+// tasks and asserts DiscardAll processes all of them — exercising the
+// pagination loop across three ListTasks calls (pageSize=1000). A previous
+// bug truncated processing at the first page; this test guards against
+// regression.
+func TestDeadLetter_DiscardAll_PaginatesCorrectly(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
+	mstore := mock.New()
+	svc, _ := buildServiceWithStore(t, mstore, logger)
+
+	const seeded = 2500
+	mem := mstore.Memory()
+	now := time.Now()
+	ctx := context.Background()
+	failed := broker.TaskStateFailed
+	dl := true
+	for i := 0; i < seeded; i++ {
+		task := &broker.Task{
+			ID:                  fmt.Sprintf("dl-task-%04d", i),
+			PipelineID:          "test-pipeline",
+			StageID:             "intake",
+			InputSchemaName:     "intake_input",
+			InputSchemaVersion:  "v1",
+			OutputSchemaName:    "intake_output",
+			OutputSchemaVersion: "v1",
+			Payload:             json.RawMessage(fmt.Sprintf(`{"input":"fail-%d"}`, i)),
+			Metadata:            map[string]any{},
+			State:               broker.TaskStatePending,
+			MaxAttempts:         1,
+			CreatedAt:           now,
+			UpdatedAt:           now,
+		}
+		if err := mem.EnqueueTask(ctx, "intake", task); err != nil {
+			t.Fatal(err)
+		}
+		if err := mem.UpdateTask(ctx, task.ID, broker.TaskUpdate{State: &failed, RoutedToDeadLetter: &dl}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		// nothing to tear down: memory store is scoped to this test.
+	})
+
+	result, err := svc.DiscardAll(ctx, "test-pipeline", 0, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Processed != seeded {
+		t.Errorf("processed: got %d want %d (pagination regression)", result.Processed, seeded)
+	}
+	if result.Failed != 0 {
+		t.Errorf("failed: got %d want 0", result.Failed)
+	}
+	if result.Truncated {
+		t.Errorf("truncated: got true want false at %d tasks (< DefaultMaxTasks)", seeded)
+	}
+
+	// Confirm the store no longer has any dead-lettered tasks (all DISCARDED).
+	count, err := svc.Count(ctx, "test-pipeline")
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count after discard-all: got %d want 0", count)
+	}
+}
 
 func TestCount_ReturnsAccurateTotal(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))

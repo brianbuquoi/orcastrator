@@ -564,23 +564,22 @@ func TestSanitizerWarning(t *testing.T) {
 	// The task should complete — sanitizer warnings don't block.
 	final := waitForTaskState(t, st, task.ID, broker.TaskStateDone, 5*time.Second)
 
-	// Check that sanitizer warnings were recorded in metadata at some point.
-	// The warnings are set on the stage that processes the tainted payload (stage2),
-	// and metadata merges accumulate. We check the final task state.
+	// Sanitizer runs on stage2's input (stage1's output was the injection),
+	// and warning metadata is merged into the task's metadata. The final
+	// stored task must carry sanitizer_warnings.
 	if final.Metadata == nil {
 		t.Fatal("expected metadata with sanitizer_warnings")
 	}
 	warnings, ok := final.Metadata["sanitizer_warnings"]
 	if !ok {
-		// Warnings may have been set on an intermediate state. Check via store.
-		// The injection string "ignore all previous instructions" is in the
-		// stage1 OUTPUT which becomes stage2's INPUT payload. The sanitizer
-		// runs on stage2's input payload.
-		t.Log("sanitizer_warnings not in final metadata — checking intermediate states")
-		// This is acceptable if the task completed; the key assertion is that
-		// the task DID complete despite the injection content.
-	} else {
-		t.Logf("sanitizer_warnings: %v", warnings)
+		t.Fatalf("expected sanitizer_warnings in final metadata; keys: %v", metadataKeys(final.Metadata))
+	}
+	warningsStr := fmt.Sprintf("%v", warnings)
+	if warningsStr == "" || warningsStr == "[]" {
+		t.Errorf("expected non-empty sanitizer_warnings, got %q", warningsStr)
+	}
+	if !strings.Contains(warningsStr, "instruction_override") {
+		t.Errorf("expected instruction_override pattern in sanitizer_warnings, got: %s", warningsStr)
 	}
 
 	if string(final.Payload) != `{"valid":true}` {
@@ -623,8 +622,16 @@ func TestContextCancellation(t *testing.T) {
 		t.Fatal("Run did not return after context cancellation")
 	}
 
-	// Allow goroutines to wind down.
-	time.Sleep(200 * time.Millisecond)
+	// Poll for goroutines to wind down rather than sleeping a fixed duration.
+	{
+		deadline := time.Now().Add(1 * time.Second)
+		for time.Now().Before(deadline) {
+			if runtime.NumGoroutine()-goroutinesBefore <= 5 {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	goroutinesAfter := runtime.NumGoroutine()
 
 	// Allow a small margin for runtime goroutines.

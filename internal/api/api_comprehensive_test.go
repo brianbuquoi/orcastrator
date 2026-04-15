@@ -674,8 +674,17 @@ func TestWebSocket_SubscriberCleanupOnDisconnect(t *testing.T) {
 		t.Fatal("EventBus.Publish blocked on dead subscriber channels")
 	}
 
-	// Verify goroutine count settles back near baseline.
-	time.Sleep(500 * time.Millisecond)
+	// Poll for goroutine count to settle back near baseline rather than
+	// sleeping a fixed duration.
+	{
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if runtime.NumGoroutine()-baseline <= 5 {
+				break
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
 	current := runtime.NumGoroutine()
 	// Allow some slack for test infrastructure goroutines.
 	if current > baseline+5 {

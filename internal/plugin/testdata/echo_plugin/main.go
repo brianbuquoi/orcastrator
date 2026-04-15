@@ -16,6 +16,15 @@
 //   ECHO_PLUGIN_RETURN_INTERNAL=1   → return internal_error  (-32603) from execute
 //   ECHO_PLUGIN_SLOW_MS=N           → sleep N ms before every reply
 //   ECHO_PLUGIN_UNHEALTHY=1         → return healthy: false from health_check
+//
+// Command-line args (carried via manifest.args, NOT env — so they bypass the
+// manifest env allow-list and can be used to observe what env the plugin
+// actually receives at startup):
+//
+//   --env-dump=<path>   → write one environ entry per line to <path> on
+//                         startup, then proceed normally. Used by tests to
+//                         verify env isolation without relying on the env
+//                         allow-list itself.
 package main
 
 import (
@@ -25,6 +34,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -67,6 +77,23 @@ type healthResult struct {
 }
 
 func main() {
+	// Handle --env-dump=<path> before anything else so tests can observe the
+	// exact env the subprocess booted with.
+	for _, arg := range os.Args[1:] {
+		if strings.HasPrefix(arg, "--env-dump=") {
+			path := strings.TrimPrefix(arg, "--env-dump=")
+			f, err := os.Create(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "env-dump create %q: %v\n", path, err)
+				os.Exit(1)
+			}
+			for _, kv := range os.Environ() {
+				fmt.Fprintln(f, kv)
+			}
+			_ = f.Close()
+		}
+	}
+
 	executeCount := 0
 	echoExitAfter, _ := strconv.Atoi(os.Getenv("ECHO_PLUGIN_ECHO_EXIT_AFTER"))
 	slowMs, _ := strconv.Atoi(os.Getenv("ECHO_PLUGIN_SLOW_MS"))

@@ -754,9 +754,17 @@ func TestFanOut_RaceNoGoroutineLeak(t *testing.T) {
 
 	waitForTaskState(t, st, task.ID, broker.TaskStateDone, 5*time.Second)
 
-	// Cancel the broker and let goroutines drain.
+	// Cancel the broker and poll for goroutines to drain.
 	cancel()
-	time.Sleep(200 * time.Millisecond)
+	{
+		deadline := time.Now().Add(1 * time.Second)
+		for time.Now().Before(deadline) {
+			if runtime.NumGoroutine() <= 50 {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 
 	// Check goroutine count — should return to a reasonable baseline.
 	baseline := runtime.NumGoroutine()
@@ -1272,13 +1280,29 @@ func TestFanOut_RaceFirstWins_TimingAndCancellation(t *testing.T) {
 
 	// Both slow agents should have been cancelled.
 	cancel()
-	time.Sleep(200 * time.Millisecond)
+	// Poll for cancelled agents rather than sleeping a fixed duration — the
+	// cancellation propagates through ctx.Done() and is observed by the agent
+	// handler, but there's no public signal, so we poll with a deadline.
+	{
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && cancelledCount.Load() < 2 {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
 	if c := cancelledCount.Load(); c < 2 {
 		t.Errorf("expected 2 cancelled agents, got %d", c)
 	}
 
-	// Goroutine leak check.
-	time.Sleep(100 * time.Millisecond)
+	// Goroutine leak check — poll for goroutines to drain.
+	{
+		deadline := time.Now().Add(1 * time.Second)
+		for time.Now().Before(deadline) {
+			if runtime.NumGoroutine() <= baselineGoroutines+5 {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	current := runtime.NumGoroutine()
 	if current > baselineGoroutines+5 {
 		t.Errorf("goroutine leak: baseline=%d, current=%d", baselineGoroutines, current)
@@ -1340,8 +1364,14 @@ func TestFanOut_RaceRequireMajority_Detailed(t *testing.T) {
 		t.Errorf("expected at least 2 succeeded, got %d", agg.SucceededCount)
 	}
 
-	// Wait for cancellation to propagate.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for cancellation to propagate — poll rather than sleep a fixed
+	// duration so slow machines don't flake and fast machines don't waste time.
+	{
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && cancelledC.Load() < 1 {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
 	if c := cancelledC.Load(); c < 1 {
 		t.Errorf("expected agent-2 to be cancelled, cancelled count: %d", c)
 	}
@@ -1403,9 +1433,17 @@ func TestFanOut_RaceAllSlow_Timeout(t *testing.T) {
 		}
 	}
 
-	// Goroutine leak check.
+	// Goroutine leak check — poll for goroutines to drain.
 	cancel()
-	time.Sleep(200 * time.Millisecond)
+	{
+		deadline := time.Now().Add(1 * time.Second)
+		for time.Now().Before(deadline) {
+			if runtime.NumGoroutine() <= baselineGoroutines+5 {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	current := runtime.NumGoroutine()
 	if current > baselineGoroutines+5 {
 		t.Errorf("goroutine leak after timeout: baseline=%d, current=%d", baselineGoroutines, current)
