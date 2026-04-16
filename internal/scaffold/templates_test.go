@@ -40,7 +40,7 @@ var requiredGitignoreLines = []string{
 	".env",
 	".env.*",
 	"!.env.example",
-	"*.overlord-init-bak",
+	"*.overlord-init-bak*",
 	"fixtures/*.secret.json",
 }
 

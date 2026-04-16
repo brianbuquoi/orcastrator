@@ -402,8 +402,10 @@ func runDemo(ctx context.Context, target string, stderr io.Writer) (json.RawMess
 		return nil, fmt.Errorf("sample payload at %s is not valid JSON", payloadPath)
 	}
 
-	// Submit exactly one task to the first pipeline.
-	submitCtx, submitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Submit exactly one task to the first pipeline. Inherit from the
+	// demo context so a SIGINT during submit propagates into cancellation
+	// instead of waiting out the 5-second timeout.
+	submitCtx, submitCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer submitCancel()
 	task, err := b.Submit(submitCtx, pipelineID, json.RawMessage(payloadBytes))
 	if err != nil {

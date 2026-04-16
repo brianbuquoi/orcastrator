@@ -572,10 +572,6 @@ func commitIntoExistingTarget(tempdir, target string, rendered []string, overwri
 	// abort without touching the target — the files we've already
 	// renamed remain backed up but the user is in a clean state.
 	backups := make([]Backup, 0, len(collisions))
-	collisionSet := make(map[string]bool, len(collisions))
-	for _, c := range collisions {
-		collisionSet[c] = true
-	}
 	for _, rel := range collisions {
 		src := filepath.Join(target, rel)
 		// Back up files only; collisions that are subdir-vs-file get

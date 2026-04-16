@@ -294,7 +294,7 @@ func assertGitignoreContract(t *testing.T, name, target string) {
 		".env",
 		".env.*",
 		"!.env.example",
-		"*.overlord-init-bak",
+		"*.overlord-init-bak*",
 		"fixtures/*.secret.json",
 	}
 	lines := strings.Split(body, "\n")
