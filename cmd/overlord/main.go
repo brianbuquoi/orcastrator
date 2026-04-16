@@ -641,11 +641,7 @@ func shouldRefusePublicNoauth(cfg *config.Config, bindAddr string, allow bool) b
 	if allow {
 		return false
 	}
-	host := bindHost(bindAddr)
-	if isLoopbackHost(host) {
-		return false
-	}
-	return true
+	return !isLoopbackHost(bindHost(bindAddr))
 }
 
 func pipelineStoreType(cfg *config.Config) string {
