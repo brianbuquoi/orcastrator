@@ -474,9 +474,9 @@ limitations and their current status.
   to simplify network-level access control in production.
 - **Redis ListTasks optimisation** — Replace SCAN-based listing with
   a sorted set index for O(log N) pagination at scale.
-- **Hot-reload topology changes** — Currently, adding or removing
-  stages requires a restart. Full topology changes via SIGHUP are
-  planned.
+- **Hot-reload subprocess reuse** — Currently, all plugin subprocesses
+  are restarted on SIGHUP even if their configuration is unchanged.
+  Reusing subprocesses for unchanged agents is planned.
 
 ## Security
 

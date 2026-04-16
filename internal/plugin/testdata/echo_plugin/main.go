@@ -116,6 +116,18 @@ func main() {
 		}()
 	}
 
+	// When set, write a sentinel line to stdout on SIGTERM to prove the
+	// signal was received (as opposed to exiting on stdin EOF).
+	if os.Getenv("ECHO_PLUGIN_SIGTERM_SENTINEL") == "1" {
+		termCh := make(chan os.Signal, 1)
+		signal.Notify(termCh, syscall.SIGTERM)
+		go func() {
+			<-termCh
+			fmt.Fprintln(os.Stdout, `{"signal":"SIGTERM"}`)
+			os.Exit(0)
+		}()
+	}
+
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 64*1024), 10*1024*1024)
 	out := bufio.NewWriter(os.Stdout)

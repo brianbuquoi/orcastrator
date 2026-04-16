@@ -250,18 +250,25 @@ func TestAgent_Stop(t *testing.T) {
 	}
 }
 
-// TestPluginAgent_Stop_SendsSIGTERM: a plugin that exits cleanly on stdin EOF
-// / SIGTERM (the default echo plugin behavior) is stopped by Stop() within the
-// configured shutdown_timeout. We record the PID before Stop and verify the
-// process is gone afterwards.
+// TestPluginAgent_Stop_SendsSIGTERM verifies that Stop() sends SIGTERM (not
+// just closes stdin). The echo plugin, when ECHO_PLUGIN_SIGTERM_SENTINEL=1,
+// writes {"signal":"SIGTERM"} to stdout upon receiving SIGTERM specifically.
+// We read from the agent's lines channel after Stop() and assert the sentinel
+// was emitted — proving the process received SIGTERM, not just EOF.
 func TestPluginAgent_Stop_SendsSIGTERM(t *testing.T) {
-	a := buildAgent(t, nil, func(m *Manifest) {
-		m.ShutdownTimeout = Duration{Duration: 2 * time.Second}
-	})
+	a := buildAgent(t,
+		map[string]string{"ECHO_PLUGIN_SIGTERM_SENTINEL": "1"},
+		func(m *Manifest) {
+			m.ShutdownTimeout = Duration{Duration: 2 * time.Second}
+		},
+	)
 	if _, err := a.Execute(context.Background(), newTask(`{}`)); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	pid := a.cmd.Process.Pid
+
+	// Grab a reference to the lines channel before Stop() clears state.
+	lines := a.lines
 
 	start := time.Now()
 	if err := a.Stop(); err != nil {
@@ -270,9 +277,70 @@ func TestPluginAgent_Stop_SendsSIGTERM(t *testing.T) {
 	if d := time.Since(start); d > 2*time.Second {
 		t.Errorf("Stop took too long (%v); expected clean exit on signal", d)
 	}
-	// PID should no longer belong to a live echo plugin process.
 	if err := syscall.Kill(pid, 0); err == nil {
 		t.Errorf("process %d still alive after Stop", pid)
+	}
+
+	// Drain the lines channel looking for the SIGTERM sentinel.
+	found := false
+	for sl := range lines {
+		if sl.err != nil {
+			continue
+		}
+		if strings.Contains(string(sl.data), `"signal":"SIGTERM"`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("SIGTERM sentinel not found on plugin stdout — Stop() may not be sending SIGTERM")
+	}
+}
+
+// TestPluginAgent_Stop_NotSIGINT verifies the sentinel is SIGTERM-specific.
+// If we send SIGINT manually (not via Stop()), the plugin should NOT write
+// the SIGTERM sentinel — confirming that the sentinel distinguishes SIGTERM.
+func TestPluginAgent_Stop_NotSIGINT(t *testing.T) {
+	a := buildAgent(t,
+		map[string]string{"ECHO_PLUGIN_SIGTERM_SENTINEL": "1"},
+		func(m *Manifest) {
+			m.ShutdownTimeout = Duration{Duration: 2 * time.Second}
+		},
+	)
+	if _, err := a.Execute(context.Background(), newTask(`{}`)); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	// Grab references before we kill the process.
+	a.mu.Lock()
+	proc := a.cmd.Process
+	lines := a.lines
+	a.mu.Unlock()
+
+	// Send SIGINT (not SIGTERM) — sentinel should NOT be written.
+	_ = proc.Signal(syscall.SIGINT)
+
+	// Wait for process to exit (stdin scanner will end).
+	timeout := time.After(2 * time.Second)
+	found := false
+	for {
+		select {
+		case sl, ok := <-lines:
+			if !ok {
+				goto done
+			}
+			if sl.err != nil {
+				continue
+			}
+			if strings.Contains(string(sl.data), `"signal":"SIGTERM"`) {
+				found = true
+			}
+		case <-timeout:
+			goto done
+		}
+	}
+done:
+	if found {
+		t.Errorf("SIGTERM sentinel appeared after SIGINT — sentinel is not SIGTERM-specific")
 	}
 }
 

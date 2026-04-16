@@ -533,7 +533,12 @@ merged with --config. Use --id to select which pipeline (by ID) to submit to.
 
 Use --dry-run to validate the payload against the first stage's input schema
 without actually submitting the task. This is useful for debugging schema
-issues without consuming API quota.`,
+issues without consuming API quota.
+
+Exit codes (--wait only):
+  0  Task completed successfully (DONE or REPLAYED)
+  1  Task failed, was dead-lettered, or was discarded
+  2  Timed out waiting for completion`,
 		Example: `  overlord submit --config infra.yaml --pipeline ./pipeline.yaml --id my-pipeline \
     --payload '{"request": "hello"}'
 
@@ -560,13 +565,12 @@ issues without consuming API quota.`,
 				}
 			}
 
-			// Parse payload: @file or inline JSON.
+			// Parse payload: @file (hardened) or inline JSON.
 			var payloadBytes json.RawMessage
 			if strings.HasPrefix(payload, "@") {
-				filePath := strings.TrimPrefix(payload, "@")
-				data, err := os.ReadFile(filePath)
+				data, err := readPayloadFile(strings.TrimPrefix(payload, "@"))
 				if err != nil {
-					return fmt.Errorf("cannot read payload file %q: %w", filePath, err)
+					return err
 				}
 				payloadBytes = json.RawMessage(data)
 			} else {
@@ -597,8 +601,29 @@ issues without consuming API quota.`,
 
 			if wait {
 				brokerCtx, brokerCancel := context.WithCancel(ctx)
-				defer brokerCancel()
-				go b.Run(brokerCtx)
+				var wg sync.WaitGroup
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					b.Run(brokerCtx)
+				}()
+				defer func() {
+					brokerCancel()
+					drainDone := make(chan struct{})
+					go func() {
+						wg.Wait()
+						close(drainDone)
+					}()
+					select {
+					case <-drainDone:
+					case <-time.After(10 * time.Second):
+					}
+					for _, s := range registry.Stoppers(b.Agents()) {
+						if err := s.Stop(); err != nil {
+							logger.Warn("agent stop error after submit --wait", "error", err)
+						}
+					}
+				}()
 
 				return pollTask(ctx, b, task.ID, timeout)
 			}
@@ -730,7 +755,7 @@ func statusCmd() *cobra.Command {
 attempt count, schema versions, and any sanitizer warnings or failure reasons.
 
 Use --watch to poll every 2 seconds until the task reaches a terminal state
-(DONE or FAILED), printing state changes as they happen.`,
+(DONE, FAILED, DISCARDED, or REPLAYED), printing state changes as they happen.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := newLogger()
 
@@ -1283,8 +1308,8 @@ If the task is currently EXECUTING, cancellation takes effect on the next
 state check. The current execution may complete first (at-least-once
 semantics). The task will not be routed to any further stages.
 
-If the task is already in a terminal state (DONE or FAILED), an error
-is returned.`,
+If the task is already in a terminal state (DONE, FAILED, DISCARDED,
+or REPLAYED), an error is returned.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := newLogger()
 

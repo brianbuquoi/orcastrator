@@ -504,21 +504,23 @@ func (a *Agent) Stop() error {
 	a.started = false
 	a.mu.Unlock()
 
-	if stdin != nil {
-		_ = stdin.Close()
-	}
-	// Graceful SIGTERM first.
+	// Send SIGTERM first and wait for exit. Stdin is closed AFTER the
+	// process has exited so the signal handler has a chance to run before
+	// the scanner's stdin EOF terminates the process.
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 
 	select {
 	case <-exited:
-		return nil
 	case <-time.After(timeout):
 		a.logger.Warn("plugin subprocess did not exit in time; sending SIGKILL", "timeout", timeout)
 		_ = cmd.Process.Kill()
 		<-exited
-		return nil
 	}
+
+	if stdin != nil {
+		_ = stdin.Close()
+	}
+	return nil
 }
 
 // prefixedWriter prepends prefix to every Write call, useful for tagging a
