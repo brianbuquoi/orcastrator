@@ -974,3 +974,35 @@ func TestWrite_ForceRollback_CopyFails(t *testing.T) {
 		t.Errorf("rollback left backup files behind: %v", bakMatches)
 	}
 }
+
+// TestRollbackMerge_BackupMissing asserts that when a backup file is
+// unexpectedly gone at rollback time, rollbackMerge does NOT remove
+// the live file at origPath. Tests the data-safety invariant added
+// after code-quality review of Unit 3.
+func TestRollbackMerge_BackupMissing(t *testing.T) {
+	target := t.TempDir()
+	// Set up: a live file at origPath, no backup file.
+	origContent := []byte("LIVE\n")
+	if err := os.WriteFile(filepath.Join(target, "overlord.yaml"), origContent, 0o644); err != nil {
+		t.Fatalf("write orig: %v", err)
+	}
+	// Call rollbackMerge with a backup entry whose bakPath does not exist.
+	backups := []Backup{
+		{Original: "overlord.yaml", Backup: "overlord.yaml.overlord-init-bak.MISSING"},
+	}
+	errs := rollbackMerge(target, backups, nil)
+	// Expect: an error about the missing backup, AND the live file is untouched.
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 rollback error; got %d: %v", len(errs), errs)
+	}
+	if !strings.Contains(errs[0].Error(), "backup missing") {
+		t.Errorf("expected 'backup missing' in error; got %q", errs[0].Error())
+	}
+	got, readErr := os.ReadFile(filepath.Join(target, "overlord.yaml"))
+	if readErr != nil {
+		t.Fatalf("read live file after rollback: %v", readErr)
+	}
+	if !bytes.Equal(got, origContent) {
+		t.Errorf("rollback destroyed live file when backup was missing\nwant: %q\n got: %q", origContent, got)
+	}
+}

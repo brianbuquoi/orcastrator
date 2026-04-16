@@ -604,7 +604,8 @@ func commitIntoExistingTarget(tempdir, target string, rendered []string, overwri
 	copied, copyErr := copyRenderedFiles(tempdir, target, rendered)
 	if copyErr != nil {
 		rbErrs := rollbackMerge(target, backups, copied)
-		if we, ok := copyErr.(*WriteError); ok {
+		var we *WriteError
+		if errors.As(copyErr, &we) {
 			we.RollbackErrors = rbErrs
 		}
 		return nil, copyErr
@@ -651,6 +652,14 @@ func rollbackMerge(target string, backups []Backup, copied []string) []error {
 	for _, b := range backups {
 		origPath := filepath.Join(target, b.Original)
 		bakPath := filepath.Join(target, b.Backup)
+		// Confirm the backup still exists before touching the live file. If
+		// the backup is gone (concurrent process, disk error, test harness
+		// pre-cleanup), restoring is impossible — record the error and
+		// leave origPath alone so we don't destroy the user's live file.
+		if _, err := os.Lstat(bakPath); err != nil {
+			errs = append(errs, fmt.Errorf("backup missing, cannot restore %s: %w", bakPath, err))
+			continue
+		}
 		if _, err := os.Lstat(origPath); err == nil {
 			if err := os.Remove(origPath); err != nil {
 				errs = append(errs, fmt.Errorf("clear path for backup restore %s: %w", origPath, err))
