@@ -1,0 +1,14 @@
+# Secrets and credential artefacts — never commit.
+.env
+.env.*
+!.env.example
+
+# Backup files left behind by `overlord init --force --overwrite`. The
+# backup may contain the prior config (including api_key_env references
+# or accidental inline credentials) — keep it out of git.
+*.overlord-init-bak
+
+# Fixture files explicitly tagged `.secret.json` are treated as local-only
+# (e.g. fixtures sourced from a real-provider capture). The whitelisted
+# `.env.example` rule above keeps our placeholder example visible.
+fixtures/*.secret.json
