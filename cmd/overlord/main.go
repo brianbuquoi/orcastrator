@@ -231,10 +231,11 @@ func buildStore(cfg *config.Config, logger *slog.Logger) (broker.Store, error) {
 	}
 }
 
-func buildAgents(cfg *config.Config, plugins map[string]pluginapi.AgentPlugin, logger *slog.Logger, m *metrics.Metrics) (map[string]broker.Agent, error) {
+func buildAgents(cfg *config.Config, plugins map[string]pluginapi.AgentPlugin, logger *slog.Logger, reg *contract.Registry, basePath string, m *metrics.Metrics) (map[string]broker.Agent, error) {
 	agents := make(map[string]broker.Agent, len(cfg.Agents))
 	for _, ac := range cfg.Agents {
-		a, err := registry.NewFromConfigWithPlugins(ac, plugins, logger, m)
+		stages := registry.StagesForAgent(cfg.Pipelines, ac.ID)
+		a, err := registry.NewFromConfigWithPlugins(ac, plugins, logger, reg, basePath, stages, m)
 		if err != nil {
 			return nil, fmt.Errorf("agent %q: %w", ac.ID, err)
 		}
@@ -256,7 +257,7 @@ func buildBroker(cfg *config.Config, plugins map[string]pluginapi.AgentPlugin, c
 		return nil, fmt.Errorf("store: %w", err)
 	}
 
-	agents, err := buildAgents(cfg, plugins, logger, m)
+	agents, err := buildAgents(cfg, plugins, logger, reg, basePath, m)
 	if err != nil {
 		return nil, fmt.Errorf("agents: %w", err)
 	}
@@ -395,7 +396,7 @@ func runCmd() *cobra.Command {
 					logger.Error("hot-reload: plugins failed", "error", err)
 					return
 				}
-				newAgents, err := buildAgents(newCfg, reloadedPlugins, logger, m)
+				newAgents, err := buildAgents(newCfg, reloadedPlugins, logger, newReg, newBasePath, m)
 				if err != nil {
 					logger.Error("hot-reload: agents failed", "error", err)
 					return
@@ -934,9 +935,19 @@ func healthCmd() *cobra.Command {
 				return fmtConfigError(configPath, err)
 			}
 
+			// Build the contract registry so any mock agent in the
+			// config gets fixture-schema validation at construction time,
+			// matching the broker build path.
+			basePath := configBasePath(configPath)
+			reg, err := buildContractRegistry(cfg, basePath)
+			if err != nil {
+				return fmt.Errorf("contract registry: %w", err)
+			}
+
 			agents := make(map[string]agent.Agent, len(cfg.Agents))
 			for _, ac := range cfg.Agents {
-				a, err := registry.NewFromConfig(ac, logger)
+				stages := registry.StagesForAgent(cfg.Pipelines, ac.ID)
+				a, err := registry.NewFromConfigWithPlugins(ac, nil, logger, reg, basePath, stages)
 				if err != nil {
 					return fmt.Errorf("agent %q: %w", ac.ID, err)
 				}
