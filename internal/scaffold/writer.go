@@ -460,10 +460,20 @@ func commitCrossFilesystem(tempdir, target string, rendered []string) error {
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		return newWriteFailure("create target directory", err)
 	}
+	// Safety: commitCrossFilesystem is only reached from the
+	// `!targetExists && !sameFS` switch branch in Write, i.e. the
+	// target did NOT previously exist and we just created it. A
+	// mid-copy failure can therefore safely RemoveAll(target) without
+	// clobbering pre-existing user content — every file and subdir
+	// there was produced by this invocation.
+	cleanup := func() {
+		_ = os.RemoveAll(target)
+	}
 	// Ensure subdirectories exist first so we can create files in order.
 	for _, rel := range rendered {
 		dir := filepath.Join(target, filepath.Dir(rel))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
+			cleanup()
 			return newWriteFailure("create target subdirectory", err)
 		}
 	}
@@ -471,19 +481,16 @@ func commitCrossFilesystem(tempdir, target string, rendered []string) error {
 		src := filepath.Join(tempdir, rel)
 		dst := filepath.Join(target, rel)
 		if err := copyFileExclusive(src, dst); err != nil {
+			cleanup()
 			return err
 		}
 	}
-	if err := os.RemoveAll(tempdir); err != nil {
-		// Non-fatal: the commit succeeded, the tempdir is just
-		// stale. Surface as a best-effort log via WriteError only
-		// if it's something more serious than ENOENT.
-		if !os.IsNotExist(err) {
-			// intentionally swallowed; the tempdir prefix is
-			// .gitignore'd so the stale dir cannot contaminate git
-			return nil
-		}
-	}
+	// Best-effort tempdir cleanup. The commit already succeeded, so a
+	// stale tempdir is an operational annoyance rather than a failure.
+	// The tempdir prefix is .gitignore'd in every scaffolded template,
+	// so a leftover tempdir cannot contaminate `git add` even if
+	// RemoveAll here fails for any reason.
+	_ = os.RemoveAll(tempdir)
 	return nil
 }
 

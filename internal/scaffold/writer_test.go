@@ -783,6 +783,74 @@ func TestWrite_CrossFilesystem(t *testing.T) {
 	}
 }
 
+// TestCommitCrossFilesystem_PartialFailureCleanup asserts that if
+// copyFileExclusive fails mid-loop, commitCrossFilesystem removes the
+// target directory it created so the caller does not see a
+// half-scaffolded project. Safe because the cross-fs path only runs
+// when the target did not pre-exist (the !targetExists && !sameFS
+// switch case in Write); the function's cleanup callback may therefore
+// os.RemoveAll(target) without risk of clobbering user content.
+//
+// We exercise the helper directly rather than staging a real cross-fs
+// flow because reliably provoking an EXDEV + mid-copy failure needs
+// two filesystems and a specific file the kernel refuses to write.
+func TestCommitCrossFilesystem_PartialFailureCleanup(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root — permission bits are advisory")
+	}
+	parent := t.TempDir()
+	tempdir := filepath.Join(parent, ".tmp")
+	target := filepath.Join(parent, "target")
+	if err := os.Mkdir(tempdir, 0o755); err != nil {
+		t.Fatalf("mkdir tempdir: %v", err)
+	}
+	// Stage two rendered files in the tempdir. The first will copy
+	// fine; the second will fail because its destination subdir is
+	// made read-only below.
+	if err := os.WriteFile(filepath.Join(tempdir, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(tempdir, "sub"), 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempdir, "sub", "b.txt"), []byte("b"), 0o644); err != nil {
+		t.Fatalf("write sub/b.txt: %v", err)
+	}
+
+	// Pre-create target/sub and chmod it read-only so copyFileExclusive
+	// of sub/b.txt fails with permission denied. The partial state (a.txt
+	// already copied into target) is exactly the mid-loop failure
+	// scenario the cleanup is designed for.
+	if err := os.MkdirAll(filepath.Join(target, "sub"), 0o755); err != nil {
+		t.Fatalf("pre-create target/sub: %v", err)
+	}
+	if err := os.Chmod(filepath.Join(target, "sub"), 0o500); err != nil {
+		t.Fatalf("chmod ro: %v", err)
+	}
+	t.Cleanup(func() {
+		// Best-effort restore so TempDir teardown can remove it (in
+		// case the function under test failed to clean up).
+		_ = os.Chmod(filepath.Join(target, "sub"), 0o700)
+	})
+
+	err := commitCrossFilesystem(tempdir, target, []string{"a.txt", "sub/b.txt"})
+	if err == nil {
+		t.Fatal("expected commitCrossFilesystem to fail")
+	}
+	var werr *WriteError
+	if !errors.As(err, &werr) {
+		t.Fatalf("want *WriteError, got %T: %v", err, err)
+	}
+	if werr.Code != ExitCodeWriteFailure {
+		t.Errorf("code = %d, want %d", werr.Code, ExitCodeWriteFailure)
+	}
+	// Target must have been removed by the cleanup callback. No
+	// half-scaffolded project left behind.
+	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+		t.Errorf("expected target to be removed on partial failure, got stat err: %v", statErr)
+	}
+}
+
 // TestWrite_RelativeTargetPath asserts a relative target path is
 // resolved via filepath.Abs before Result.Target is set — callers who
 // want to `cd` into the scaffolded dir should not have to re-resolve.

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/brianbuquoi/overlord/internal/broker"
 	"github.com/brianbuquoi/overlord/internal/scaffold"
 )
 
@@ -624,4 +625,177 @@ func TestInitExitError_ErrorAs(t *testing.T) {
 	_ = nilErr.Error()
 	_ = nilErr.Unwrap()
 }
+
+// =============================================================================
+// runDemo error-branch coverage
+//
+// These tests drive the switch statements inside runDemo +
+// waitForDemoTerminal. Branches that require mocking the broker's task
+// store (final == nil, TaskStateDiscarded, the unexpected-state default)
+// are noted below with a comment; they are defensive guards and the
+// plan explicitly acknowledges they are not practically reachable
+// without invasive seam changes.
+// =============================================================================
+
+// scaffoldHelloForDemo scaffolds a fresh hello project into a TempDir
+// and returns the absolute target path. Shared setup for the runDemo
+// error-branch tests below.
+func scaffoldHelloForDemo(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "proj")
+	if _, err := scaffold.Write(context.Background(), "hello", dir, scaffold.Options{}); err != nil {
+		t.Fatalf("scaffold.Write: %v", err)
+	}
+	return dir
+}
+
+// withDemoTimeout replaces the package-level demoTimeout for the lifetime
+// of the caller's test. The returned cleanup func restores the original.
+// Tests use t.Cleanup to call it so parallel tests would still race; the
+// runDemo tests below run serially by not calling t.Parallel().
+func withDemoTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	orig := demoTimeout
+	demoTimeout = d
+	t.Cleanup(func() { demoTimeout = orig })
+}
+
+// TestRunDemo_InvalidSamplePayloadJSON exercises the json.Valid check
+// around line 401 of init.go. We scaffold a normal project, then
+// overwrite sample_payload.json with garbage, and call runDemo directly.
+func TestRunDemo_InvalidSamplePayloadJSON(t *testing.T) {
+	dir := scaffoldHelloForDemo(t)
+	payloadPath := filepath.Join(dir, "sample_payload.json")
+	if err := os.WriteFile(payloadPath, []byte("{this is not json"), 0o644); err != nil {
+		t.Fatalf("corrupt sample_payload: %v", err)
+	}
+	_, err := runDemo(context.Background(), dir, io.Discard)
+	if err == nil {
+		t.Fatal("expected runDemo to fail on malformed sample_payload.json")
+	}
+	if !strings.Contains(err.Error(), "is not valid JSON") {
+		t.Errorf("error should mention 'is not valid JSON', got: %v", err)
+	}
+}
+
+// TestRunDemo_Timeout exercises the demoOutcomeTimeout branch of the
+// post-poll switch. We shrink demoTimeout to a value smaller than the
+// 100ms poll-tick interval inside waitForDemoTerminal; the poll
+// context's deadline fires before the first tick, guaranteeing the
+// timeout branch regardless of how fast the mock broker completes.
+func TestRunDemo_Timeout(t *testing.T) {
+	withDemoTimeout(t, 1*time.Millisecond)
+	dir := scaffoldHelloForDemo(t)
+
+	_, err := runDemo(context.Background(), dir, io.Discard)
+	if err == nil {
+		t.Fatal("expected runDemo to fail with timeout")
+	}
+	if !strings.Contains(err.Error(), "demo timed out") {
+		t.Errorf("error should mention 'demo timed out', got: %v", err)
+	}
+}
+
+// TestRunDemo_CanceledParentContext exercises the demoOutcomeCanceled
+// branch of the post-poll switch. We pre-cancel the parent context so
+// pollCtx (derived from it) is already Done by the time the poll loop
+// runs, and its ctx.Err() is context.Canceled rather than DeadlineExceeded.
+//
+// Note: b.Submit may itself fail once the parent ctx is canceled. Both
+// outcomes exercise cancellation-during-demo code, so we accept either
+// an enqueue error or the polling-canceled return as valid.
+func TestRunDemo_CanceledParentContext(t *testing.T) {
+	dir := scaffoldHelloForDemo(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := runDemo(ctx, dir, io.Discard)
+	if err == nil {
+		t.Fatal("expected runDemo to fail with canceled context")
+	}
+	// Accept either the poll-loop's context.Canceled return or a
+	// submit-time enqueue failure triggered by the canceled context —
+	// both prove the cancellation path is wired.
+	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "submit task") {
+		t.Errorf("expected context.Canceled or 'submit task' error, got: %v", err)
+	}
+}
+
+// TestWaitForDemoTerminal_Timeout directly exercises the
+// demoOutcomeTimeout branch of waitForDemoTerminal. We poll against an
+// unknown task ID so last stays nil and ctx expires.
+func TestWaitForDemoTerminal_Timeout(t *testing.T) {
+	dir := scaffoldHelloForDemo(t)
+	b := buildDemoBroker(t, dir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	last, outcome := waitForDemoTerminal(ctx, b, "nonexistent-task-id")
+	if outcome != demoOutcomeTimeout {
+		t.Errorf("expected demoOutcomeTimeout, got %v", outcome)
+	}
+	if last != nil {
+		t.Errorf("expected last==nil for unknown task, got %+v", last)
+	}
+}
+
+// TestWaitForDemoTerminal_Canceled directly exercises the
+// demoOutcomeCanceled branch by canceling the parent context before any
+// terminal state is reached.
+func TestWaitForDemoTerminal_Canceled(t *testing.T) {
+	dir := scaffoldHelloForDemo(t)
+	b := buildDemoBroker(t, dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	last, outcome := waitForDemoTerminal(ctx, b, "nonexistent-task-id")
+	if outcome != demoOutcomeCanceled {
+		t.Errorf("expected demoOutcomeCanceled, got %v", outcome)
+	}
+	if last != nil {
+		t.Errorf("expected last==nil for unknown task, got %+v", last)
+	}
+}
+
+// buildDemoBroker is a test helper that wires the same broker runDemo
+// would — loadConfig + buildBroker — without starting worker goroutines.
+// Used by the waitForDemoTerminal branch tests above.
+func buildDemoBroker(t *testing.T, target string) *broker.Broker {
+	t.Helper()
+	configPath := filepath.Join(target, "overlord.yaml")
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	logger := newDemoLogger(io.Discard)
+	b, err := buildBroker(cfg, nil, configPath, logger, nil, nil)
+	if err != nil {
+		t.Fatalf("buildBroker: %v", err)
+	}
+	return b
+}
+
+// Defensive-branch rationale (intentionally un-tested):
+//
+// - final == nil after poll: waitForDemoTerminal returns last as the
+//   most recent successful GetTask observation. The only way final can
+//   be nil at this point is if b.Submit succeeded AND every subsequent
+//   GetTask errored for the entire polling window. That requires a
+//   broker store that forgets a task it just accepted — not producible
+//   with memory store, not worth instrumenting a fault-injection seam
+//   for this single branch.
+//
+// - TaskStateDiscarded: the broker reaches this state only via
+//   explicit cancel-command paths (SEC2-003) not wired into the init
+//   demo. Injecting it would require either a test-only store that
+//   pre-seeds state or a RunE-level seam neither of which exists
+//   today. Covered by the broker package's own unit tests.
+//
+// - default (unexpected TaskState): TaskState is an exhaustive string
+//   enum; the default arm guards against a future TaskState constant
+//   added without updating runDemo. Practically unreachable without a
+//   breaking change to internal/broker; not worth a test.
 

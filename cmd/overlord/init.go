@@ -39,8 +39,10 @@ const (
 // demoTimeout is the hard cap on a scaffolded demo run. 30 seconds is
 // generous for a single mock-backed pipeline task; anything longer
 // suggests a broker wedge and is reported as demo failure so the user
-// still sees the next-steps block.
-const demoTimeout = 30 * time.Second
+// still sees the next-steps block. Declared as a var (not a const) so
+// tests can override it to exercise the polling-timeout branch without
+// waiting 30s; production paths never mutate it.
+var demoTimeout = 30 * time.Second
 
 // demoDrainTimeout bounds how long runDemo waits for the broker
 // goroutine to exit after brokerCancel. Memory-store scaffolded demos
@@ -331,7 +333,7 @@ func templateDescription(name string) string {
 // failure mode (timeout, FAILED state, build error, etc.).
 //
 // The broker is always drained before returning, even on error paths.
-func runDemo(ctx context.Context, target string, stderr io.Writer) (json.RawMessage, error) {
+func runDemo(ctx context.Context, target string, stderr io.Writer) (payload json.RawMessage, runErr error) {
 	configPath := filepath.Join(target, "overlord.yaml")
 
 	cfg, err := loadConfig(configPath)
@@ -364,15 +366,21 @@ func runDemo(ctx context.Context, target string, stderr io.Writer) (json.RawMess
 	}
 
 	brokerCtx, brokerCancel := context.WithCancel(ctx)
+	// Capacity-1 channel so the goroutine never blocks publishing its
+	// error even if the drain path never reads it.
+	brokerErrCh := make(chan error, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		b.Run(brokerCtx)
+		brokerErrCh <- b.Run(brokerCtx)
 	}()
 
 	// Always drain the broker goroutine and stop any agents that manage
-	// external processes, even on early-return paths.
+	// external processes, even on early-return paths. If the broker
+	// itself returned a non-context-cancel error, fold it into runErr so
+	// broker-start failures surface immediately instead of being masked
+	// by the 30s polling timeout.
 	defer func() {
 		brokerCancel()
 		done := make(chan struct{})
@@ -384,6 +392,20 @@ func runDemo(ctx context.Context, target string, stderr io.Writer) (json.RawMess
 		case <-done:
 		case <-time.After(demoDrainTimeout):
 			fmt.Fprintln(stderr, "warning: broker drain exceeded 5s; proceeding with Stop()")
+		}
+		// Drain the error channel non-blockingly. It's buffered, so if
+		// the goroutine finished it has already written. If the drain
+		// timed out the channel is still empty; that's fine.
+		select {
+		case err := <-brokerErrCh:
+			// context.Canceled is the expected exit when we cancel
+			// brokerCtx during normal cleanup; anything else is a
+			// real broker-side failure. Only surface it if runDemo
+			// didn't already fail with a more specific error.
+			if err != nil && !errors.Is(err, context.Canceled) && runErr == nil {
+				runErr = fmt.Errorf("broker run: %w", err)
+			}
+		default:
 		}
 		for _, s := range registry.Stoppers(b.Agents()) {
 			if err := s.Stop(); err != nil {
