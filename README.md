@@ -57,10 +57,13 @@ gather (wait for all) or race (first to satisfy) modes with configurable
 require policies (all/any/majority).
 
 A **chain** is a linear pipeline authored in a minimal YAML shape:
-`chain.id`, `chain.vars`, `chain.steps`, `chain.output`. Each step is a
-single prompt + model reference. The chain compiler produces a normal
-pipeline, one stage per step, with synthesized schemas — then the
-broker runs it. See [docs/chain.md](docs/chain.md).
+`chain.id`, `chain.vars`, `chain.steps`, `chain.output`. Each step is
+a single prompt + model reference. The chain compiler produces a
+normal pipeline, one stage per step, with synthesized schemas — then
+the broker runs it. JSON output can optionally carry a lightweight
+inline schema (`chain.output.schema`) so the final stage's payload is
+still validated without needing a full `schema_registry`. See
+[docs/chain.md](docs/chain.md).
 
 ```
                        ┌──────────┐
@@ -115,6 +118,10 @@ go install github.com/brianbuquoi/overlord/cmd/overlord@latest
 overlord chain init write-review
 overlord chain run --chain ./write-review/chain.yaml \
   --input-file ./write-review/sample_input.txt
+
+# Or pipe input on stdin:
+echo "summarize this" | overlord chain run \
+  --chain ./write-review/chain.yaml --input-file -
 ```
 
 The scaffolded chain uses the built-in `mock` provider so you see a
@@ -123,7 +130,8 @@ switch to a real LLM, open `chain.yaml`, replace the step's
 `model: mock/*` with a real provider/model (e.g.
 `anthropic/claude-sonnet-4-5`, `openai/gpt-4o`,
 `google/gemini-2.5-pro`, `ollama/llama3`), and delete the `fixture:`
-line.
+line. Real providers require a full `<provider>/<model>` string; bare
+provider names (e.g. `anthropic` on its own) are rejected.
 
 See [docs/chain.md](docs/chain.md) for the chain reference, template
 catalog, and graduation path to pipeline mode.

@@ -84,12 +84,17 @@ chain:
 
 Three placeholders are supported in a step's `prompt`:
 
-- `{{input}}` — the chain's initial text (or JSON blob) submitted at
-  run time.
+- `{{input}}` — the chain's initial input.
+  - For `input.type: text` this is the raw string the caller passed
+    to `--input` / `--input-file`.
+  - For `input.type: json` this is the full JSON object string — the
+    whole payload, not a single field of it.
 - `{{vars.<name>}}` — a variable declared in the chain's `vars` map.
   Resolved at compile time.
-- `{{steps.<id>.output>}}` — the text output of an earlier step.
-  Resolved at runtime.
+- `{{steps.<id>.output}}` — the text output of an earlier step.
+  Resolved at runtime. Intermediate steps always expose their output
+  as text (the `"text"` field of the inter-stage payload); use JSON
+  output only on the last step.
 
 Forward references (`{{steps.X.output}}` from a step that runs before
 `X`) are a compile-time error.
@@ -99,19 +104,77 @@ Forward references (`{{steps.X.output}}` from a step that runs before
 Any provider the runtime already understands: `anthropic`, `openai`,
 `openai-responses`, `google`, `ollama`, `mock`, `copilot`. Write the
 model string as `<provider>/<model>` (e.g. `anthropic/claude-sonnet-4-5`,
-`openai/gpt-4o`). Bare `mock` is accepted for mock-provider steps; a
-`fixture:` path is required and must be a JSON file relative to the
-chain YAML's directory.
+`openai/gpt-4o`). A bare provider name (e.g. `anthropic` with no
+model) is **rejected** for every real provider — chain validation
+surfaces a clear error telling you to pick a concrete model. Bare
+`mock` is the one exception: mock steps never consult a model string,
+so `model: mock` is allowed. Mock steps also require a `fixture:`
+path, which must be a JSON file relative to the chain YAML's
+directory.
 
 ### Input and output
 
 - `input.type: text` wraps the raw string as `{"text": "..."}` on the
-  wire so every built-in adapter sees a uniform object.
-- `input.type: json` accepts a JSON **object** verbatim.
+  wire so every built-in adapter sees a uniform object. `{{input}}`
+  in a step prompt renders as the raw string.
+- `input.type: json` accepts a JSON **object** verbatim — the object
+  is forwarded to the first stage unchanged. `{{input}}` in a step
+  prompt renders as the **full original JSON object string** (e.g.
+  `{"query":"foo","limit":5}`). No field is silently extracted — the
+  whole object is what your prompt sees.
 - `output.type: text` (default) unwraps the final step's `.text` field
   when printing.
 - `output.type: json` treats the final step's payload as structured
-  JSON; the LLM is expected to produce a JSON object.
+  JSON; the LLM is expected to produce a JSON object. By default any
+  object passes the schema check; see "Validating JSON output" below
+  to add required fields or types inline.
+
+### Selecting the final output
+
+`chain.output.from` is optional and, when set, must reference the
+chain's **last** step in the `steps.<id>.output` form. Picking an
+intermediate step is **not** supported in chain mode v1 — the
+compiler would have to either surface a non-terminal task's payload
+or truncate the pipeline, both of which break the "chains are normal
+pipelines" model. If you need intermediate-step output, graduate via
+`overlord chain export` and hand-edit the exported pipeline: every
+stage can route to `done` explicitly. Chain validation rejects
+non-last-step `output.from` references with a pointer at this
+limitation.
+
+### Validating JSON output
+
+For `output.type: json`, you can optionally declare a lightweight
+inline JSONSchema the final stage's payload is validated against.
+This is a strict subset of what pipeline-mode's `schema_registry`
+gives you — the point is to catch missing fields before you graduate,
+not to recreate the full schema machinery.
+
+```yaml
+output:
+  type: json
+  schema:
+    type: object
+    required: [summary, findings, verdict]
+    properties:
+      summary:  { type: string }
+      findings: { type: array, items: { type: object } }
+      verdict:  { type: string, enum: [approve, reject, revise] }
+```
+
+Rules:
+
+- `output.schema` is only valid when `output.type: json`. Setting it
+  with `type: text` (or no type) is a validation error.
+- The schema is any valid JSONSchema fragment — whatever you write is
+  serialized to JSON and compiled by the same JSONSchema compiler
+  pipeline mode uses. Invalid schemas are rejected at `chain run`
+  (and `chain validate`) time, not mid-broker.
+- The schema is synthesized under the reserved name `chain_json@v1`.
+  `chain export` writes it to `schemas/chain_json_v1.json`, so
+  graduation preserves the validation rules.
+- v1 is intentionally narrow: no `$ref`, no cross-file references,
+  no version bumping. For those, graduate.
 
 ## CLI
 
@@ -122,8 +185,12 @@ overlord chain init write-review
 # Run a chain with a text input.
 overlord chain run --chain ./chain.yaml --input "some text"
 
-# Or read the input from a file (use "-" for stdin with --input-file).
+# Or read the input from a file.
 overlord chain run --chain ./chain.yaml --input-file ./prompt.txt
+
+# Read the input from stdin (the single-dash sentinel reads until EOF,
+# so pipes and heredocs work naturally).
+echo "summarize this" | overlord chain run --chain ./chain.yaml --input-file -
 
 # Show the compiled interpretation (pipeline, stages, agents, schemas).
 overlord chain inspect --chain ./chain.yaml
@@ -174,8 +241,17 @@ does:
 
 - Parses the chain YAML and validates step IDs, references, variables,
   and provider names.
-- Synthesizes two JSON schemas on the fly (`chain_text@v1`,
-  `chain_json@v1`) and registers them via `contract.NewRegistryFromRaw`.
+- Synthesizes JSON schemas on the fly and registers them via
+  `contract.NewRegistryFromRaw`:
+  - `chain_text@v1` — the inter-stage text wire format
+    (`{"text": "..."}`) used between every step.
+  - `chain_json@v1` — the final-stage contract when
+    `output.type: json`. Defaults to an open object, or the
+    compiled form of `output.schema` when the author declared one.
+  - `chain_input_json@v1` — an open-object contract for the first
+    stage's input when `input.type: json`. Distinct from
+    `chain_json@v1` so an author tightening the output schema does
+    not inadvertently reject the initial JSON payload.
 - Emits a normal `config.Config` with one pipeline, one stage per step,
   and one agent per step. The agent's `system_prompt` holds the step's
   prompt with `{{vars.*}}` resolved — runtime placeholders are

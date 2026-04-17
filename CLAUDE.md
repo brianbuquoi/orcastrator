@@ -192,10 +192,27 @@ mode consumes:
 - Two JSON schemas (`chain_text@v1`, `chain_json@v1`) are synthesized
   at compile time and registered via `contract.NewRegistryFromRaw`,
   so the broker's existing validator enforces them like any other
-  stage contract.
+  stage contract. `chain_json@v1` defaults to an open object, but an
+  inline `chain.output.schema` overrides the bytes so the final
+  stage validates against the user's schema.
 - Per-step outputs propagate across stages in `task.Metadata["chain"]`
   — a non-reserved metadata key, so the broker's normal
   `mergeMetadata` path carries it without any broker changes.
+
+**v1 constraints (intentional).** Chain mode is a front door, not a
+superset of pipeline mode; the compiler enforces these at validate
+time:
+
+- `chain.output.from`, if set, must reference the chain's **last**
+  step. Intermediate-step selection is not supported — graduate via
+  `overlord chain export` and hand-edit the exported pipeline, where
+  any stage can route to `done` explicitly.
+- Real-provider step models must be `<provider>/<model>`; bare
+  provider names (e.g. `anthropic`) are rejected. Bare `mock` is
+  allowed because the mock provider never reads the model field.
+- `{{input}}` for `input.type: json` is the **full original JSON
+  object string**, never a single field of it. Text chains see
+  `{{input}}` as the raw text payload.
 
 The chain-step wrapper adapter calls the real provider adapter
 underneath (`anthropic`, `openai`, etc.) via
@@ -468,7 +485,8 @@ the reverse proxy or firewall level in production.
   are in. Aliasing or collapsing the two would re-introduce the
   heavyweight-front-door problem chain mode exists to solve.
 - Do not silently synthesize new `chain_*` schema names in
-  compile-layer changes. The names `chain_text` and `chain_json` are
-  the only reserved synthesized schemas today; any additions must be
-  documented in `docs/chain.md` and guarded against conflict with
-  user-authored pipeline schemas in `overlord chain export`.
+  compile-layer changes. The reserved synthesized schemas today are
+  `chain_text@v1`, `chain_json@v1`, and `chain_input_json@v1`; any
+  additions must be documented in `docs/chain.md` and guarded
+  against conflict with user-authored pipeline schemas in
+  `overlord chain export`.
