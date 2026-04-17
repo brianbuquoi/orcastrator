@@ -54,15 +54,30 @@ type RunOptions struct {
 // typically the directory containing the chain YAML. Pass empty when
 // a chain has no mock-provider steps.
 func Run(ctx context.Context, ch *Chain, basePath string, opts RunOptions) (*RunResult, error) {
-	logger := opts.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-
 	compiled, err := CompileWithBase(ch, basePath)
 	if err != nil {
 		return nil, fmt.Errorf("compile chain: %w", err)
 	}
+	return RunCompiled(ctx, compiled, opts)
+}
+
+// RunCompiled drives an already-compiled chain through the broker. It
+// is the entry point for authoring layers that run the strict
+// validator themselves (the workflow compiler does this, so
+// workflow.Run can reuse its compiled output instead of recompiling).
+//
+// Callers that start from a *Chain use Run instead; RunCompiled
+// exists so the strict validator can't be accidentally skipped by a
+// higher-layer caller that has already compiled.
+func RunCompiled(ctx context.Context, compiled *Compiled, opts RunOptions) (*RunResult, error) {
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if compiled == nil || compiled.Chain == nil {
+		return nil, fmt.Errorf("run: compiled chain is required")
+	}
+	ch := compiled.Chain
 
 	b, err := BuildBroker(compiled, logger, metrics.New())
 	if err != nil {
@@ -170,7 +185,7 @@ func buildBaseAgents(compiled *Compiled, logger *slog.Logger, m *metrics.Metrics
 	base := make(map[string]agent.Agent, len(compiled.Config.Agents))
 	for _, ac := range compiled.Config.Agents {
 		stages := registry.StagesForAgent(compiled.Config.Pipelines, ac.ID)
-		a, err := registry.NewFromConfigWithPlugins(ac, nil, logger, compiled.Registry, compiled.BasePath, stages, m)
+		a, err := registry.NewFromConfigWithPlugins(ac, nil, compiled.Config.Plugins, logger, compiled.Registry, compiled.BasePath, stages, m)
 		if err != nil {
 			return nil, fmt.Errorf("build agent %q: %w", ac.ID, err)
 		}
@@ -226,8 +241,19 @@ func waitForTerminal(ctx context.Context, b *broker.Broker, taskID string) (*bro
 // extractFinalOutput reduces a terminal task's payload to the surface
 // text/JSON the CLI prints. text chains unwrap the "text" field;
 // json chains return the payload verbatim.
+//
+// Only DONE tasks produce output. For every other terminal state
+// (FAILED, DISCARDED, REPLAYED) the payload reflects the last
+// successful stage, not a completed run — emitting it would lie to
+// the caller about whether the chain succeeded. Return empty so the
+// CLI layer can decide how to report the failure without printing
+// stale input as if it were output (audit: overlord run reported
+// failed workflows as success and printed the input back).
 func extractFinalOutput(ch *Chain, task *broker.Task) string {
 	if task == nil || len(task.Payload) == 0 {
+		return ""
+	}
+	if task.State != broker.TaskStateDone {
 		return ""
 	}
 	switch ch.OutputType() {

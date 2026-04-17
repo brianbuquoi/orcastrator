@@ -26,10 +26,18 @@ type RunOptions struct {
 	Logger *slog.Logger
 }
 
-// Run compiles file and drives it through the shared broker with an
-// in-memory store. Run is the beginner-friendly entry point behind
-// `overlord run` for workflow-shaped configs — one workflow, one
-// input, one terminal result.
+// Run compiles file through the full workflow compiler (including the
+// strict-mode validator) and drives the result through the shared
+// broker with an in-memory store. Run is the beginner-friendly entry
+// point behind `overlord run` for workflow-shaped configs — one
+// workflow, one input, one terminal result.
+//
+// Run goes through Compile, not toChain directly, so every config
+// that reaches the broker has survived the same validator that
+// `overlord serve` uses. The audit flagged the prior shortcut as a
+// correctness gap: a malformed runtime.auth block could be accepted
+// by `overlord run` and rejected by `overlord serve`, which breaks
+// the shared-runtime guarantee.
 //
 // Workflows declaring runtime.store.type != memory are still runnable
 // here; Run forces a memory store for the single-shot path so the
@@ -40,11 +48,11 @@ func Run(ctx context.Context, file *File, basePath string, opts RunOptions) (*ch
 	if file == nil || file.Workflow == nil {
 		return nil, fmt.Errorf("run: empty workflow")
 	}
-	ch, err := toChain(file.Workflow)
+	compiled, err := Compile(file, basePath)
 	if err != nil {
 		return nil, err
 	}
-	return chain.Run(ctx, ch, basePath, chain.RunOptions{
+	return chain.RunCompiled(ctx, compiled.Compiled, chain.RunOptions{
 		Input:   opts.Input,
 		Timeout: opts.Timeout,
 		Logger:  opts.Logger,
