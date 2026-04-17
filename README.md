@@ -495,8 +495,6 @@ limitations and their current status.
   instance processed the task.
 - **Metrics port separation** — Serve `/metrics` on a dedicated port
   to simplify network-level access control in production.
-- **Redis ListTasks optimisation** — Replace SCAN-based listing with
-  a sorted set index for O(log N) pagination at scale.
 - **Hot-reload subprocess reuse** — Currently, all plugin subprocesses
   are restarted on SIGHUP even if their configuration is unchanged.
   Reusing subprocesses for unchanged agents is planned.
