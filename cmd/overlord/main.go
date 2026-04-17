@@ -178,7 +178,13 @@ func newLogger() *slog.Logger {
 	case "error":
 		level = slog.LevelError
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	// Logs go to stderr so stdout is reserved for the user-facing
+	// payload (overlord run output, overlord init scaffolding
+	// confirmation, overlord export --stdout YAML, etc.). The audit
+	// flagged that the prior JSON logs on stdout polluted the
+	// beginner path: a piped `overlord run ... | jq` would see a
+	// mixture of log lines and the actual payload.
+	return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 }
 
 func loadConfig(path string) (*config.Config, error) {

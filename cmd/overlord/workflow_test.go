@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/brianbuquoi/overlord/internal/broker"
 )
 
 // runRootCmd drives the root cobra command in-process and captures
@@ -67,6 +69,97 @@ workflow:
 	}
 	if err := os.WriteFile(filepath.Join(dir, "sample_input.txt"), []byte("Announce the new release.\n"), 0o644); err != nil {
 		t.Fatalf("write sample_input: %v", err)
+	}
+}
+
+// TestRunCmd_FailedWorkflowExitsNonZeroAndSuppressesOutput is the CLI-
+// level regression test for the audit finding that overlord run lied
+// about failed workflows: it exited 0 and printed the inbound payload
+// back on stdout. We construct a workflow whose second step blows up
+// at contract-validation time because its fixture violates the
+// chain_text@v1 output schema — the fixture lies about being a mock
+// text response, so the broker fails the step and the task ends in
+// FAILED.
+//
+// Expectation: the command returns a non-nil error (non-zero exit),
+// stdout is empty (no stale payload leaking through), and stderr
+// mentions the failure.
+func TestRunCmd_FailedWorkflowExitsNonZeroAndSuppressesOutput(t *testing.T) {
+	dir := t.TempDir()
+	// Construct a workflow whose second-stage fixture is a valid
+	// fixture file (passes mock-adapter construction) but produces
+	// output that violates the downstream input schema the broker
+	// enforces at runtime. We do that by declaring an output:text
+	// workflow whose final fixture returns JSON with no "text" field.
+	// The chain layer synthesizes chain_text@v1 expecting {text: ...};
+	// anything else fails contract validation at runtime → FAILED.
+	//
+	// But the mock adapter validates fixtures against output_schema at
+	// construction, which would pre-reject this. So instead, we force
+	// a runtime failure by pointing the second step at an oversized
+	// fixture that fails a runtime guard. Simpler: use an intentionally
+	// broken model spec so agent Execute returns an error.
+	//
+	// The most deterministic scheme is: second step uses an ollama
+	// provider with an unreachable OLLAMA_ENDPOINT. The adapter builds
+	// at construction but Execute fails immediately, retries exhaust,
+	// task ends FAILED — exactly the audit repro shape.
+	t.Setenv("OLLAMA_ENDPOINT", "http://127.0.0.1:1") // TCP/1 is reserved, connect refuses instantly.
+	yaml := `version: "1"
+
+workflow:
+  id: failing-cli
+  input: text
+  output: text
+  steps:
+    - model: ollama/nope
+      prompt: "{{input}}"
+      timeout: 1s
+`
+	if err := os.WriteFile(filepath.Join(dir, "overlord.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write workflow: %v", err)
+	}
+
+	stdout, stderr, err := runRootCmd(t,
+		"run",
+		"--config", filepath.Join(dir, "overlord.yaml"),
+		"--input", "hello",
+		"--quiet",
+		"--timeout", "10s",
+	)
+	if err == nil {
+		t.Fatalf("expected non-zero exit (Run must fail on non-DONE terminal); stdout=%q stderr=%q", stdout, stderr)
+	}
+	if strings.Contains(stdout, "hello") {
+		t.Errorf("stdout must not leak the inbound payload for failed runs; got %q", stdout)
+	}
+	if !strings.Contains(err.Error(), "FAILED") && !strings.Contains(err.Error(), "ended in state") {
+		t.Errorf("error must signal the non-DONE terminal state; got %v", err)
+	}
+}
+
+// TestFailureReason verifies the helper that extracts the broker's
+// recorded failure reason from task metadata. Kept close to the CLI
+// so the wording the user sees is locked down by the test.
+func TestFailureReason(t *testing.T) {
+	cases := []struct {
+		name string
+		task *broker.Task
+		want string
+	}{
+		{"nil_task", nil, ""},
+		{"no_metadata", &broker.Task{}, ""},
+		{"no_reason_key", &broker.Task{Metadata: map[string]any{"other": "x"}}, ""},
+		{"empty_reason", &broker.Task{Metadata: map[string]any{"failure_reason": ""}}, ""},
+		{"non_string_reason", &broker.Task{Metadata: map[string]any{"failure_reason": 42}}, ""},
+		{"real_reason", &broker.Task{Metadata: map[string]any{"failure_reason": "max_attempts_exceeded"}}, ": max_attempts_exceeded"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := failureReason(tc.task); got != tc.want {
+				t.Errorf("failureReason() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

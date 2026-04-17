@@ -183,23 +183,24 @@ func runInit(cmd *cobra.Command, args []string, a initArgs) error {
 	stderr := cmd.ErrOrStderr()
 	stdout := cmd.OutOrStdout()
 
-	// 1. Template name defaults to the workflow starter. Explicit names
-	//    still work for the strict-pipeline templates (hello, summarize).
-	template := defaultInitTemplate
-	if len(args) >= 1 && strings.TrimSpace(args[0]) != "" {
-		template = args[0]
+	// 1 + 3. Resolve template name and target dir from positional args.
+	//        Grammar per init.md: `overlord init [template] [dir]` with
+	//        both positionals optional. The prior implementation always
+	//        treated arg[0] as a template, so a natural invocation like
+	//        `overlord init /tmp/my-project` failed with "unknown
+	//        template" — the audit flagged that as a first-run footgun.
+	//        Now: a single positional is disambiguated as a directory
+	//        when it is path-shaped, and as a template name otherwise.
+	template, target, err := resolveInitPositionals(args, defaultInitTemplate)
+	if err != nil {
+		fmt.Fprintln(stderr, templateHelpMessage(template))
+		return &initExitError{Code: initExitInvalidTarget, Msg: err.Error()}
 	}
 
 	// 2. Unknown template — print the list + "unknown template: ..." + code 2.
 	if !isKnownTemplate(template) {
 		fmt.Fprintln(stderr, templateHelpMessage(template))
 		return &initExitError{Code: initExitInvalidTarget, Msg: fmt.Sprintf("unknown template: %s", template)}
-	}
-
-	// 3. Compute target.
-	target := "./" + template
-	if len(args) >= 2 && strings.TrimSpace(args[1]) != "" {
-		target = args[1]
 	}
 
 	// 4. Call scaffold.Write. Map WriteError.Code → initExitError.Code.
@@ -316,6 +317,75 @@ func runInit(cmd *cobra.Command, args []string, a initArgs) error {
 	}
 	fmt.Fprintln(stderr, nextSteps)
 	return nil
+}
+
+// resolveInitPositionals disambiguates the optional [template] [dir]
+// positional arguments. Both are optional per docs/init.md; the
+// documented grammar is:
+//
+//	overlord init                     # default template, ./<template> dir
+//	overlord init <template>          # named template, ./<template> dir
+//	overlord init <dir>                # default template, <dir> as target
+//	overlord init <template> <dir>    # both explicit
+//
+// The single-positional case is ambiguous: the prior code treated it
+// as a template name only, which broke `overlord init /tmp/foo`. We
+// disambiguate by looking for path shape — absolute paths, leading
+// `./` or `../`, `.`, or any `/` — and treat those as the target dir
+// while keeping the default template. A single positional with no
+// path shape is still treated as a template name, so typos surface
+// as "unknown template" rather than silently scaffolding into a
+// directory named after the typo.
+func resolveInitPositionals(args []string, defaultTemplate string) (template, target string, err error) {
+	template = defaultTemplate
+	target = "./" + template
+
+	switch len(args) {
+	case 0:
+		return template, target, nil
+	case 1:
+		arg0 := strings.TrimSpace(args[0])
+		if arg0 == "" {
+			return template, target, nil
+		}
+		if looksLikePath(arg0) {
+			return template, arg0, nil
+		}
+		template = arg0
+		target = "./" + template
+		return template, target, nil
+	case 2:
+		arg0 := strings.TrimSpace(args[0])
+		arg1 := strings.TrimSpace(args[1])
+		if arg0 == "" {
+			return "", "", fmt.Errorf("template argument is empty")
+		}
+		template = arg0
+		if arg1 != "" {
+			target = arg1
+		} else {
+			target = "./" + template
+		}
+		return template, target, nil
+	default:
+		// cobra.MaximumNArgs(2) already rejects >2 args, but guard
+		// defensively so this function is safe to call from tests.
+		return "", "", fmt.Errorf("too many positional arguments (max 2)")
+	}
+}
+
+// looksLikePath returns true when s is clearly intended as a filesystem
+// path rather than a template name. Template names in the embedded
+// catalog are single identifiers (no separators), so any `/` or leading
+// `.` is unambiguous.
+func looksLikePath(s string) bool {
+	if s == "." || s == ".." {
+		return true
+	}
+	if strings.HasPrefix(s, "./") || strings.HasPrefix(s, "../") || strings.HasPrefix(s, "/") {
+		return true
+	}
+	return strings.Contains(s, "/")
 }
 
 // isKnownTemplate reports whether name appears in the embedded catalog.

@@ -139,6 +139,52 @@ func TestRun_EndToEnd(t *testing.T) {
 	}
 }
 
+// TestRun_PropagatesCompileValidation verifies the shared-runtime
+// contract: whatever the strict validator rejects at `overlord serve`
+// compile time, `overlord run` must also reject. The audit flagged
+// the prior shape of workflow.Run — which skipped Compile and went
+// straight to toChain — as a divergence that let malformed runtime
+// blocks slip past `overlord run` and surface only much later.
+//
+// This test uses a known-bad runtime.auth block (auth.enabled: true
+// with zero keys) which the strict validator rejects in validateAuth.
+// Before the fix, Run would accept it and try to serve without keys;
+// after the fix, Run rejects at Compile time with the same error
+// serve produces.
+func TestRun_PropagatesCompileValidation(t *testing.T) {
+	src := `version: "1"
+workflow:
+  id: bad-runtime
+  input: text
+  steps:
+    - model: mock/draft
+      fixture: fixtures/draft.json
+      prompt: "{{input}}"
+
+runtime:
+  auth:
+    enabled: true
+`
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "overlord.yaml"), src)
+	writeFile(t, filepath.Join(dir, "fixtures", "draft.json"), `{"text": "x"}`)
+
+	file, err := Load(filepath.Join(dir, "overlord.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, runErr := Run(ctx, file, dir, RunOptions{Input: "go", Timeout: 2 * time.Second})
+	if runErr == nil {
+		t.Fatal("expected Run to reject auth.enabled with no keys, got nil")
+	}
+	if !strings.Contains(runErr.Error(), "auth.keys") {
+		t.Errorf("expected error to mention the validator rule; got %v", runErr)
+	}
+}
+
 // TestIsWorkflowShape distinguishes workflow files from strict
 // pipeline configs so `overlord run`/`serve`/`export` can route
 // correctly.

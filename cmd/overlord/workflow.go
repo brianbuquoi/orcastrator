@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/brianbuquoi/overlord/internal/broker"
 	"github.com/brianbuquoi/overlord/internal/chain"
 	"github.com/brianbuquoi/overlord/internal/workflow"
 )
@@ -72,11 +73,41 @@ func runWorkflow(cmd *cobra.Command, configPath string, a workflowRunArgs) error
 		return err
 	}
 
+	// A terminal state that is not DONE means the workflow did not
+	// succeed. Emitting the result payload for those cases would lie
+	// to the caller (the payload reflects the last successful stage,
+	// not a completed run — the audit reproduced this as `overlord
+	// run` exiting 0 and printing the input back). Report the failure
+	// via error so the exit code is non-zero, and do not print any
+	// output envelope. The JSON output format intentionally does not
+	// get a "failed" envelope either: the shell exit code is the
+	// contract, and callers that need richer structure should compile
+	// a pipeline and use the HTTP API.
+	if result.Task.State != broker.TaskStateDone {
+		reason := failureReason(result.Task)
+		return fmt.Errorf("workflow %s ended in state %s%s", result.Task.ID, result.Task.State, reason)
+	}
+
 	if !a.quiet {
 		fmt.Fprintf(stderr, "workflow: task %s completed in state %s\n", result.Task.ID, result.Task.State)
 	}
 	writeWorkflowOutput(stdout, a.outputFmt, result)
 	return nil
+}
+
+// failureReason returns ": <reason>" drawn from the task's recorded
+// failure metadata, or "" when no reason is recorded. Kept small and
+// allocation-free so the happy path stays cheap.
+func failureReason(task *broker.Task) string {
+	if task == nil || task.Metadata == nil {
+		return ""
+	}
+	if v, ok := task.Metadata["failure_reason"]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			return ": " + s
+		}
+	}
+	return ""
 }
 
 // readInputFile honors the stdin sentinel "-" so pipes and heredocs

@@ -31,6 +31,14 @@ overlord init [template] [dir] [flags]
   strict-pipeline templates.
 - `[dir]` — optional. Target directory. Defaults to `./<template>`.
 
+When a single positional looks like a path (absolute, begins with `./`
+or `../`, `.`, or contains `/`), it is treated as the target directory
+and the default template is used. So `overlord init /tmp/my-project`
+scaffolds the starter template into `/tmp/my-project`. A single
+positional with no path shape is treated as a template name — an
+unknown one surfaces as `unknown template` so typos are visible
+instead of silently writing into a directory named after the typo.
+
 Omitting the template argument writes the starter workflow into
 `./starter`.
 
