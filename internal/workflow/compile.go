@@ -60,6 +60,17 @@ func Compile(file *File, basePath string) (*Compiled, error) {
 		return nil, err
 	}
 
+	// Run the strict-mode validator on the lowered config so malformed
+	// runtime-block values (empty auth keys, duplicate key names,
+	// invalid scope strings, etc.) surface at Compile time instead of
+	// at broker-start time after workers are already running. The
+	// workflow surface does not expose every strict-config knob, but
+	// the overlay path can produce any shape `applyRuntime` maps, so
+	// we validate the full compiled config rather than a subset.
+	if err := config.Validate(compiledChain.Config); err != nil {
+		return nil, fmt.Errorf("workflow compile: invalid compiled config: %w", err)
+	}
+
 	return &Compiled{
 		Compiled: compiledChain,
 		Workflow: file.Workflow,
