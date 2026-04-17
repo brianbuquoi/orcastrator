@@ -76,6 +76,20 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// Validate runs the strict-mode validator against an in-memory
+// *Config. Use this when you have a Config built programmatically
+// (e.g. via the workflow compiler) rather than loaded from disk via
+// Load. Load already runs the strict validator internally; Validate
+// lets other authoring layers enforce the same guarantees before
+// handing a config to the broker.
+//
+// The underlying validator is intentionally unexported so no caller
+// can silently skip a subset of checks — this wrapper is the only
+// public entry point.
+func Validate(cfg *Config) error {
+	return validate(cfg)
+}
+
 func validate(cfg *Config) error {
 	agentIDs, err := collectAgentIDs(cfg.Agents)
 	if err != nil {
